@@ -5,6 +5,7 @@ import { CatalogBrowser } from './components/CatalogBrowser';
 import { CommandSearch } from './components/CommandSearch';
 import { ContinueWatchingRow } from './components/ContinueWatchingRow';
 import { DetailsModal } from './components/DetailsModal';
+import { DownloadsView } from './components/DownloadsView';
 import { HeroSection } from './components/HeroSection';
 import { MediaCard } from './components/MediaCard';
 import { MediaRow } from './components/MediaRow';
@@ -13,6 +14,15 @@ import { OnboardingGuide } from './components/OnboardingGuide';
 import { SettingsModal } from './components/SettingsModal';
 import { VideoPlayer } from './components/VideoPlayer';
 import { useIsDesktop } from './hooks/useIsDesktop';
+import {
+  deleteDownloadJob,
+  fetchDownloads,
+  pauseDownloadJob,
+  resumeDownloadJob,
+  startDownloadJob,
+  type DownloadItem,
+  type StartDownloadPayload,
+} from './services/playerApi';
 import {
   getMediaKey,
   usePlayHubStorage,
@@ -75,6 +85,7 @@ export default function App() {
     preferences,
     setTheme,
     setLanguage,
+    setDownloadDir,
     updatePlaybackPreference,
     updateSourcePreference,
     exportBackupJson,
@@ -120,6 +131,96 @@ export default function App() {
 
   const [selected, setSelected] = useState<MediaItem | null>(null);
   const [activeSession, setActiveSession] = useState<ActivePlayerSession | null>(null);
+  const [downloads, setDownloads] = useState<DownloadItem[]>([]);
+  const [resolvedDownloadDir, setResolvedDownloadDir] = useState('');
+
+  const refreshDownloads = useCallback(async () => {
+    try {
+      const data = await fetchDownloads();
+      setDownloads(data.downloads);
+      if (data.downloadDir) setResolvedDownloadDir(data.downloadDir);
+    } catch {
+      // Backend local pode estar offline
+    }
+  }, []);
+
+  const activeDownloadsCount = useMemo(
+    () =>
+      downloads.filter((d) => d.status === 'downloading' || d.status === 'queued').length,
+    [downloads]
+  );
+
+  // Carrega lista inicial de downloads ao abrir o app
+  useEffect(() => {
+    void refreshDownloads();
+  }, [refreshDownloads]);
+
+  // Polling leve a cada 2s apenas quando há downloads ativos ou a aba Downloads está aberta
+  useEffect(() => {
+    if (activeTab !== 'downloads' && activeDownloadsCount === 0) return;
+    void refreshDownloads();
+    const timer = window.setInterval(() => {
+      void refreshDownloads();
+    }, 2000);
+    return () => window.clearInterval(timer);
+  }, [activeTab, activeDownloadsCount, refreshDownloads]);
+
+  const handleStartDownload = useCallback(
+    async (payload: StartDownloadPayload) => {
+      await startDownloadJob(payload);
+      await refreshDownloads();
+    },
+    [refreshDownloads]
+  );
+
+  const handlePauseDownload = useCallback(
+    (id: string) => {
+      void pauseDownloadJob(id).then(() => refreshDownloads());
+    },
+    [refreshDownloads]
+  );
+
+  const handleResumeDownload = useCallback(
+    (id: string) => {
+      void resumeDownloadJob(id).then(() => refreshDownloads());
+    },
+    [refreshDownloads]
+  );
+
+  const handleDeleteDownload = useCallback(
+    (id: string, deleteFiles: boolean) => {
+      void deleteDownloadJob(id, deleteFiles).then(() => refreshDownloads());
+    },
+    [refreshDownloads]
+  );
+
+  const handlePlayOffline = useCallback((dl: DownloadItem) => {
+    const mediaItem: MediaItem = {
+      id: dl.tmdbId,
+      media_type: dl.mediaType,
+      title: dl.mediaType === 'movie' ? dl.title : undefined,
+      name: dl.mediaType === 'tv' ? dl.title : undefined,
+      overview: '',
+      poster_path: dl.posterPath,
+      backdrop_path: dl.backdropPath,
+      vote_average: 0,
+      vote_count: 0,
+    };
+    setSelected(null);
+    setActiveSession({
+      item: mediaItem,
+      req: {
+        tmdbId: dl.tmdbId,
+        imdbId: dl.imdbId,
+        type: dl.mediaType,
+        title: dl.title,
+        ...(dl.mediaType === 'tv' ? { season: dl.season ?? 1, episode: dl.episode ?? 1 } : {}),
+        offlineDownloadId: dl.id,
+        offlineHasSubtitle: Boolean(dl.subtitlePath),
+        offlineFileName: dl.fileName,
+      },
+    });
+  }, []);
 
   // Atalho global Ctrl+K / Cmd+K para abrir a busca Spotlight (desabilitado com o player aberto)
   useEffect(() => {
@@ -376,10 +477,10 @@ export default function App() {
     [handleTabChange]
   );
 
-  const heroItem = useMemo(
-    () => trending.find((item) => Boolean(item.backdrop_path)) || trending[0] || null,
-    [trending]
-  );
+  const heroItems = useMemo(() => {
+    const withBackdrop = trending.filter((item) => Boolean(item.backdrop_path));
+    return (withBackdrop.length > 0 ? withBackdrop : trending).slice(0, 5);
+  }, [trending]);
 
   const ratedGrid = useMemo(() => {
     const list: MediaItem[] = [];
@@ -403,6 +504,7 @@ export default function App() {
         onToggleCollapse={() => setSidebarCollapsed((prev) => !prev)}
         watchlistCount={watchlist.length}
         ratedCount={ratedEntries.length}
+        activeDownloadsCount={activeDownloadsCount}
       />
 
       {/* Área principal */}
@@ -498,9 +600,9 @@ export default function App() {
                 </div>
               ) : (
                 <>
-                  {heroItem && (
+                  {heroItems.length > 0 && (
                     <HeroSection
-                      item={heroItem}
+                      items={heroItems}
                       onOpenDetails={handleSelectItem}
                       onPlay={handlePlay}
                     />
@@ -707,6 +809,33 @@ export default function App() {
               )}
             </motion.section>
           )}
+
+          {activeTab === 'downloads' && (
+            <motion.section
+              key="tab-downloads"
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -6 }}
+              transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
+              className="px-5 pt-8 sm:px-10 sm:pt-12 lg:px-14"
+            >
+              <SectionHeader
+                eyebrow="Modo Offline"
+                title="Downloads"
+                count={downloads.length}
+              />
+
+              <DownloadsView
+                downloads={downloads}
+                downloadDir={preferences.downloadDir || resolvedDownloadDir}
+                onPause={handlePauseDownload}
+                onResume={handleResumeDownload}
+                onDelete={handleDeleteDownload}
+                onPlayOffline={handlePlayOffline}
+                onOpenSettings={() => setSettingsOpen(true)}
+              />
+            </motion.section>
+          )}
         </AnimatePresence>
       </motion.main>
 
@@ -737,6 +866,11 @@ export default function App() {
         onChangeLanguage={setLanguage}
         onChangePlayback={updatePlaybackPreference}
         onChangeSource={updateSourcePreference}
+        resolvedDownloadDir={resolvedDownloadDir}
+        onChangeDownloadDir={(dir) => {
+          setDownloadDir(dir);
+          window.setTimeout(() => void refreshDownloads(), 700);
+        }}
         onExportBackup={exportBackupJson}
         onImportBackup={importBackupJson}
       />
@@ -750,6 +884,12 @@ export default function App() {
         onRate={setRating}
         onClose={() => setSelected(null)}
         onPlay={handlePlay}
+        onSelectRelated={handleSelectItem}
+        downloads={downloads}
+        addons={addonUrls}
+        sourcePreferences={preferences.sources}
+        languageConfig={languageConfig}
+        onStartDownload={handleStartDownload}
       />
 
       {/* Tutorial / Onboarding Interativo */}
@@ -779,6 +919,8 @@ export default function App() {
               setSettingsOpen(true);
             }}
             onSaveProgress={handleSaveProgress}
+            onChangeSubtitleSize={(size) => updatePlaybackPreference('subtitleSize', size)}
+            onStartDownload={handleStartDownload}
             onNextEpisode={
               activeSession.req.type === 'tv' ? handleNextEpisode : undefined
             }

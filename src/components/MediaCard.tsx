@@ -57,10 +57,23 @@ export function MediaCard({
         y: { ...CARD_SPRING, delay: Math.min(index * 0.03, 0.24) },
       }}
       whileHover={{ y: -5, transition: CARD_SPRING }}
-      className={`group flex cursor-pointer flex-col text-left focus:outline-none ${className}`}
+      className={`group relative isolate flex cursor-pointer flex-col overflow-visible text-left focus:outline-none ${className}`}
     >
-      {/* Pôster 2:3 */}
-      <div className="relative aspect-[2/3] w-full overflow-hidden rounded-xl bg-[var(--ph-surface)] ring-1 ring-[var(--ph-border)] transition-[box-shadow,ring-color] duration-300 group-hover:ring-[var(--ph-border-strong)] group-focus-visible:ring-2 group-focus-visible:ring-[var(--ph-text)]">
+      {/* Wrapper com Ambilight Editorial sutil atrás do pôster */}
+      <div className="relative overflow-visible">
+        {posterUrl && !imgFailed && (
+          <img
+            src={posterUrl}
+            alt=""
+            aria-hidden="true"
+            loading="lazy"
+            draggable={false}
+            className="pointer-events-none absolute -inset-2 -z-10 h-[calc(100%+16px)] w-[calc(100%+16px)] scale-105 rounded-2xl object-cover opacity-0 blur-2xl saturate-150 transition-opacity duration-500 group-hover:opacity-40 group-focus-visible:opacity-40"
+          />
+        )}
+
+        {/* Pôster 2:3 */}
+        <div className="relative aspect-[2/3] w-full overflow-hidden rounded-xl bg-[var(--ph-surface)] ring-1 ring-[var(--ph-border)] transition-[box-shadow,ring-color] duration-300 group-hover:ring-[var(--ph-border-strong)] group-focus-visible:ring-2 group-focus-visible:ring-[var(--ph-text)]">
         {posterUrl && !imgFailed ? (
           <img
             src={posterUrl}
@@ -126,6 +139,7 @@ export function MediaCard({
             <span>{userRating}/5</span>
           </div>
         )}
+        </div>
       </div>
 
       {/* Título e ano discretos abaixo do pôster */}

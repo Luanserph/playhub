@@ -87,7 +87,7 @@ export function MediaRow({
         <div
           ref={scrollRef}
           onScroll={updateScrollState}
-          className="no-scrollbar flex gap-4 overflow-x-auto scroll-smooth px-5 pb-2 pt-1.5 sm:gap-5 sm:px-10 lg:px-14"
+          className="no-scrollbar flex gap-4 overflow-x-auto scroll-smooth px-5 py-4 sm:gap-5 sm:px-10 lg:px-14"
         >
           {items.map((item, idx) => {
             const key = `${item.media_type}-${item.id}`;

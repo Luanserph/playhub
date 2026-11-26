@@ -10,12 +10,14 @@ import { setRuntimeTmdbKey } from './tmdb';
 
 export type ThemeMode = 'dark' | 'light';
 export type DefaultPlayerMode = 'embed' | 'native';
+export type SubtitleSize = 'sm' | 'md' | 'lg';
 
 export interface PlaybackPreferences {
   defaultPlayerMode: DefaultPlayerMode;
   prioritizePtBrAudio: boolean;
   autoSubtitlesPtBr: boolean;
   experimentalAiDubbing: boolean;
+  subtitleSize?: SubtitleSize;
 }
 
 export interface SourcePreferences {
@@ -29,6 +31,7 @@ export interface UserPreferences {
   language: LanguagePreference;
   playback: PlaybackPreferences;
   sources: SourcePreferences;
+  downloadDir?: string;
 }
 
 export interface AddonEntry {
@@ -42,6 +45,7 @@ export interface WatchHistoryEntry {
   imdbId: string;
   season?: number;
   episode?: number;
+  stillPath?: string | null;
   progressPercent: number;
   currentTimeSeconds?: number;
   durationSeconds?: number;
@@ -79,12 +83,14 @@ export const DEFAULT_PREFERENCES: UserPreferences = {
     prioritizePtBrAudio: true,
     autoSubtitlesPtBr: true,
     experimentalAiDubbing: false,
+    subtitleSize: 'md',
   },
   sources: {
     enableBuiltInProviders: true,
     torznabUrl: '',
     torznabApiKey: '',
   },
+  downloadDir: '',
 };
 
 export function getMediaKey(item: Pick<MediaItem, 'media_type' | 'id'>): string {
@@ -284,6 +290,10 @@ function normalizePreferences(
       experimentalAiDubbing:
         saved?.playback?.experimentalAiDubbing ??
         DEFAULT_PREFERENCES.playback.experimentalAiDubbing,
+      subtitleSize:
+        saved?.playback?.subtitleSize === 'sm' || saved?.playback?.subtitleSize === 'lg'
+          ? saved.playback.subtitleSize
+          : 'md',
     },
     sources: {
       enableBuiltInProviders:
@@ -298,6 +308,7 @@ function normalizePreferences(
           ? saved.sources.torznabApiKey
           : (torznabFallback?.apiKey ?? ''),
     },
+    downloadDir: typeof saved?.downloadDir === 'string' ? saved.downloadDir : '',
   };
 }
 
@@ -639,6 +650,11 @@ export function usePlayHubStorage() {
           imdbId: req.imdbId,
           season: req.season,
           episode: req.episode,
+          ...(req.stillPath !== undefined
+            ? { stillPath: req.stillPath }
+            : sameEpisode && existing?.stillPath
+              ? { stillPath: existing.stillPath }
+              : {}),
           progressPercent: nextPercent,
           ...(nextTime !== undefined ? { currentTimeSeconds: nextTime } : {}),
           ...(nextDuration !== undefined ? { durationSeconds: nextDuration } : {}),
@@ -777,6 +793,14 @@ export function usePlayHubStorage() {
   const setLanguage = useCallback((language: LanguagePreference) => {
     setPreferencesState((prev) => {
       const next: UserPreferences = { ...prev, language };
+      savePreferences(next);
+      return next;
+    });
+  }, []);
+
+  const setDownloadDir = useCallback((downloadDir: string) => {
+    setPreferencesState((prev) => {
+      const next: UserPreferences = { ...prev, downloadDir: downloadDir.trim() };
       savePreferences(next);
       return next;
     });
@@ -934,6 +958,7 @@ export function usePlayHubStorage() {
     preferences,
     setTheme,
     setLanguage,
+    setDownloadDir,
     updatePlaybackPreference,
     updateSourcePreference,
     exportBackupJson,

@@ -5,11 +5,15 @@ import {
   AlertCircle,
   ArrowLeft,
   Check,
+  Copy,
+  Download,
+  ExternalLink,
   Loader2,
   Maximize,
   Minimize,
   Pause,
   Play,
+  Ratio,
   RotateCcw,
   RotateCw,
   Server,
@@ -17,6 +21,7 @@ import {
   Shield,
   SkipForward,
   Subtitles,
+  Upload,
   Volume2,
   VolumeX,
 } from 'lucide-react';
@@ -27,16 +32,27 @@ import {
   fetchLastStreamError,
   fetchTorrentMeta,
   fetchTorrentStatus,
+  fetchTorrentSubtitles,
+  getOfflineStreamUrl,
+  getOfflineSubtitleUrl,
   resolvePlayback,
   type DubVoiceKey,
   type ResolvedStream,
   type ResolveReason,
   type ResolveSubtitleInfo,
+  type StartDownloadPayload,
+  type SubtitleTrackOption,
   type TorrentStatusInfo,
 } from '../services/playerApi';
-import type { PlaybackPreferences, SourcePreferences } from '../services/storage';
+import type { PlaybackPreferences, SourcePreferences, SubtitleSize } from '../services/storage';
 import type { MediaItem, PlayRequest } from '../types/media';
 import type { LanguageConfig } from '../utils/locale';
+import {
+  buildExternalM3u,
+  convertSubtitleToVtt,
+  convertVttToSrt,
+  triggerTextDownload,
+} from '../utils/subtitleConverter';
 
 interface VideoPlayerProps {
   item: MediaItem;
@@ -56,6 +72,8 @@ interface VideoPlayerProps {
     currentTime: number,
     duration: number
   ) => void;
+  onChangeSubtitleSize?: (size: SubtitleSize) => void;
+  onStartDownload?: (payload: StartDownloadPayload) => Promise<void>;
   onNextEpisode?: () => void;
 }
 
@@ -65,8 +83,36 @@ interface AudioTrackItem {
   lang?: string;
 }
 
-type PopoverType = 'audio' | 'subtitles' | 'sources' | null;
+type PopoverType = 'audio' | 'subtitles' | 'sources' | 'external' | 'aspect' | null;
 type PlayerMode = 'native' | 'embed';
+type AspectRatioMode = 'original' | 'cover' | 'stretch' | '16:9' | '4:3' | '21:9';
+
+const ASPECT_RATIO_OPTIONS: { id: AspectRatioMode; label: string; short: string }[] = [
+  { id: 'original', label: 'Ajustar (Original)', short: 'Ajustar' },
+  { id: 'cover', label: 'Preencher / Zoom', short: 'Preencher' },
+  { id: 'stretch', label: 'Esticar (100%)', short: 'Esticar' },
+  { id: '16:9', label: 'Forçar 16:9', short: '16:9' },
+  { id: '4:3', label: 'Forçar 4:3', short: '4:3' },
+  { id: '21:9', label: 'Cinema 21:9', short: '21:9' },
+];
+
+function getAspectVideoClass(mode: AspectRatioMode): string {
+  switch (mode) {
+    case 'cover':
+      return 'h-full w-full object-cover';
+    case 'stretch':
+      return 'h-full w-full object-fill';
+    case '16:9':
+      return 'aspect-video max-h-full max-w-full w-full object-fill';
+    case '4:3':
+      return 'aspect-[4/3] max-h-full max-w-full h-full object-fill';
+    case '21:9':
+      return 'aspect-[21/9] max-h-full max-w-full w-full object-fill';
+    case 'original':
+    default:
+      return 'h-full w-full object-contain';
+  }
+}
 
 const STARTUP_TIMEOUT_MS = 6000;
 const CONTROLS_HIDE_MS = 3000;
@@ -107,6 +153,8 @@ export function VideoPlayer({
   onClose,
   onOpenSettings,
   onSaveProgress,
+  onChangeSubtitleSize,
+  onStartDownload,
   onNextEpisode,
 }: VideoPlayerProps) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -119,9 +167,17 @@ export function VideoPlayer({
   const hideTimerRef = useRef<number | null>(null);
   const hasResumedRef = useRef(false);
   const userVolumeRef = useRef(1);
+  const subtitleFileInputRef = useRef<HTMLInputElement>(null);
+  const localBlobUrlsRef = useRef<string[]>([]);
+  const osdTimerRef = useRef<number | null>(null);
+  const userPickedSubRef = useRef(false);
 
-  const initialMode: PlayerMode =
-    preferences.defaultPlayerMode === 'native' ? 'native' : 'embed';
+  const isOfflinePlayback = Boolean(request.offlineDownloadId);
+  const initialMode: PlayerMode = isOfflinePlayback
+    ? 'native'
+    : preferences.defaultPlayerMode === 'native'
+      ? 'native'
+      : 'embed';
 
   const [phase, setPhase] = useState<
     'resolving' | 'empty' | 'loading-stream' | 'ready' | 'error'
@@ -137,6 +193,10 @@ export function VideoPlayer({
   const [useProxy, setUseProxy] = useState(false);
   const [forceTranscode, setForceTranscode] = useState(false);
   const [subtitle, setSubtitle] = useState<ResolveSubtitleInfo | null>(null);
+  const [subtitleOptions, setSubtitleOptions] = useState<SubtitleTrackOption[]>([]);
+  const [activeSubtitleId, setActiveSubtitleId] = useState<string | null>(null);
+  const [isDraggingSub, setIsDraggingSub] = useState(false);
+  const [copiedStreamLink, setCopiedStreamLink] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [technicalDetail, setTechnicalDetail] = useState<string | null>(null);
   const [possibleShieldsBlock, setPossibleShieldsBlock] = useState(false);
@@ -165,10 +225,36 @@ export function VideoPlayer({
   const [activeAudioTrack, setActiveAudioTrack] = useState<number>(-1);
   const [hasNativePtBrAudio, setHasNativePtBrAudio] = useState(false);
   const [subtitlesEnabled, setSubtitlesEnabled] = useState(preferences.autoSubtitlesPtBr);
+  const [subtitleSize, setSubtitleSize] = useState<SubtitleSize>(
+    preferences.subtitleSize ?? 'md'
+  );
   const [subtitleOffset, setSubtitleOffset] = useState(0);
+  const [aspectRatio, setAspectRatio] = useState<AspectRatioMode>('original');
+  const [osdMessage, setOsdMessage] = useState<string | null>(null);
+  const [upNextDismissed, setUpNextDismissed] = useState(false);
+  const [upNextCountdown, setUpNextCountdown] = useState<number | null>(null);
   const [aiDubbingEnabled, setAiDubbingEnabled] = useState(preferences.experimentalAiDubbing);
   const [dubVoice, setDubVoice] = useState<DubVoiceKey>('female');
   const [dubVolume, setDubVolume] = useState(1);
+
+  const showOsd = useCallback((msg: string) => {
+    setOsdMessage(msg);
+    if (osdTimerRef.current !== null) {
+      window.clearTimeout(osdTimerRef.current);
+    }
+    osdTimerRef.current = window.setTimeout(() => {
+      setOsdMessage(null);
+      osdTimerRef.current = null;
+    }, 1500);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (osdTimerRef.current !== null) {
+        window.clearTimeout(osdTimerRef.current);
+      }
+    };
+  }, []);
 
   const activeStream = streams[activeStreamIndex] ?? null;
   const isTranscoded = Boolean(
@@ -183,10 +269,22 @@ export function VideoPlayer({
         ? seekOffset + currentTime
         : currentTime;
 
-  const effectiveSubtitleUrl = subtitle?.url
-    ? isTranscoded && seekOffset > 0
-      ? `${subtitle.url}${subtitle.url.includes('?') ? '&' : '?'}offset=${Math.floor(seekOffset)}`
-      : subtitle.url
+  const activeSubtitleOption =
+    subtitleOptions.find((opt) => opt.id === activeSubtitleId) ?? null;
+
+  const baseSubtitleUrl = activeSubtitleOption?.url ?? subtitle?.url ?? null;
+  const isBlobSubtitle = Boolean(baseSubtitleUrl && baseSubtitleUrl.startsWith('blob:'));
+
+  const effectiveSubtitleUrl = baseSubtitleUrl
+    ? !isBlobSubtitle && isTranscoded && seekOffset > 0
+      ? `${baseSubtitleUrl}${baseSubtitleUrl.includes('?') ? '&' : '?'}offset=${Math.floor(seekOffset)}`
+      : baseSubtitleUrl
+    : null;
+
+  const externalStreamUrl = activeStream
+    ? activeStream.sourceType === 'torrent' && activeStream.infoHash
+      ? `http://127.0.0.1:3001/api/torrent-raw/${encodeURIComponent(activeStream.infoHash)}/${encodeURIComponent(String(activeStream.fileIdx ?? 'auto'))}`
+      : activeStream.url
     : null;
 
   const aiDubbingActive =
@@ -234,6 +332,136 @@ export function VideoPlayer({
     [playerMode, streams.length]
   );
 
+  // Libera Blob URLs criadas ao carregar legendas locais
+  useEffect(() => {
+    const urls = localBlobUrlsRef.current;
+    return () => {
+      for (const u of urls) {
+        URL.revokeObjectURL(u);
+      }
+    };
+  }, []);
+
+  const handleUploadSubtitleFile = useCallback(
+    async (file: File) => {
+      try {
+        const rawText = await file.text();
+        const vtt = convertSubtitleToVtt(rawText, file.name);
+        const blob = new Blob([vtt], { type: 'text/vtt;charset=utf-8' });
+        const blobUrl = URL.createObjectURL(blob);
+        localBlobUrlsRef.current.push(blobUrl);
+
+        const localId = `local-${Date.now()}`;
+        const localOption: SubtitleTrackOption = {
+          id: localId,
+          label: file.name,
+          langTag: 'LOCAL',
+          releaseName: 'Arquivo local carregado',
+          url: blobUrl,
+        };
+
+        setSubtitleOptions((prev) => [localOption, ...prev]);
+        setActiveSubtitleId(localId);
+        userPickedSubRef.current = true;
+        setSubtitle({
+          status: 'native',
+          language: languageConfig.locale,
+          url: blobUrl,
+        });
+        setSubtitlesEnabled(true);
+        setSubtitleOffset(0);
+        setEmbedNotice(`Legenda carregada: ${file.name}`);
+      } catch {
+        setEmbedNotice('Não foi possível ler o arquivo de legenda selecionado.');
+      }
+    },
+    [languageConfig.locale]
+  );
+
+  const handleSelectSubtitleOption = useCallback(
+    (option: SubtitleTrackOption) => {
+      userPickedSubRef.current = true;
+      setActiveSubtitleId(option.id);
+      setSubtitle({
+        status: option.langTag === 'IA PT-BR' ? 'auto-translated' : 'native-pt',
+        language: option.langTag === 'EN' ? 'en-US' : languageConfig.locale,
+        url: option.url,
+      });
+      setSubtitlesEnabled(true);
+      setSubtitleOffset(0);
+      showOsd(`Legenda: ${option.langTag}`);
+    },
+    [languageConfig.locale, showOsd]
+  );
+
+  const handleSelectAspectRatio = useCallback(
+    (mode: AspectRatioMode) => {
+      setAspectRatio(mode);
+      const found = ASPECT_RATIO_OPTIONS.find((o) => o.id === mode);
+      showOsd(`Proporção: ${found?.label ?? mode}`);
+    },
+    [showOsd]
+  );
+
+  const cycleAspectRatio = useCallback(() => {
+    setAspectRatio((prev) => {
+      const idx = ASPECT_RATIO_OPTIONS.findIndex((o) => o.id === prev);
+      const next = ASPECT_RATIO_OPTIONS[(idx + 1) % ASPECT_RATIO_OPTIONS.length]!;
+      showOsd(`Proporção: ${next.label}`);
+      return next.id;
+    });
+  }, [showOsd]);
+
+  const handleChangeSubtitleSize = useCallback(
+    (size: SubtitleSize) => {
+      setSubtitleSize(size);
+      onChangeSubtitleSize?.(size);
+      const label = size === 'sm' ? 'Pequena' : size === 'lg' ? 'Grande' : 'Média';
+      showOsd(`Tamanho da legenda: ${label}`);
+    },
+    [onChangeSubtitleSize, showOsd]
+  );
+
+  const handleDownloadExternalM3u = useCallback(() => {
+    if (!externalStreamUrl) return;
+    const m3uContent = buildExternalM3u(externalStreamUrl, request.title);
+    triggerTextDownload('playhub-stream.m3u', m3uContent, 'audio/x-mpegurl;charset=utf-8');
+    setEmbedNotice('Arquivo playhub-stream.m3u baixado — abra no VLC ou MPV.');
+    setActivePopover(null);
+  }, [externalStreamUrl, request.title]);
+
+  const handleCopyStreamLink = useCallback(async () => {
+    if (!externalStreamUrl) return;
+    try {
+      await navigator.clipboard.writeText(externalStreamUrl);
+      setCopiedStreamLink(true);
+      setEmbedNotice('Link do stream copiado! Use Ctrl+N no VLC/MPV.');
+      window.setTimeout(() => setCopiedStreamLink(false), 2000);
+    } catch {
+      setEmbedNotice('Não foi possível copiar o link automaticamente.');
+    }
+  }, [externalStreamUrl]);
+
+  const handleDownloadCurrentSubtitleSrt = useCallback(async () => {
+    if (!effectiveSubtitleUrl) return;
+    try {
+      const res = await fetch(effectiveSubtitleUrl);
+      if (!res.ok) throw new Error('Falha ao baixar legenda');
+      const vttText = await res.text();
+      const srtText = convertVttToSrt(vttText);
+      const safeName =
+        request.title
+          .replace(/[^\w\s-]/g, '')
+          .trim()
+          .replace(/\s+/g, '_') || 'legenda';
+      triggerTextDownload(`${safeName}.srt`, srtText, 'application/x-subrip;charset=utf-8');
+      setEmbedNotice(`Legenda ${safeName}.srt baixada.`);
+      setActivePopover(null);
+    } catch {
+      setEmbedNotice('Não foi possível baixar a legenda atual.');
+    }
+  }, [effectiveSubtitleUrl, request.title]);
+
   // Bloqueia scroll do body enquanto o player está aberto
   useEffect(() => {
     const prevOverflow = document.body.style.overflow;
@@ -275,8 +503,53 @@ export function VideoPlayer({
     return () => window.clearInterval(interval);
   }, [flushProgress]);
 
-  // 1. Pipeline inicial: resolve streams + legenda PT-BR no backend
+  // 1. Pipeline inicial: modo offline local OU resolve streams + legenda PT-BR no backend
   useEffect(() => {
+    if (request.offlineDownloadId) {
+      const offlineId = request.offlineDownloadId;
+      const streamUrl = getOfflineStreamUrl(offlineId);
+      const offlineStream: ResolvedStream = {
+        id: `offline-${offlineId}`,
+        url: streamUrl,
+        proxyUrl: streamUrl,
+        sourceType: 'http',
+        name: request.offlineFileName || 'Arquivo Offline',
+        title: request.title,
+        releaseTitle: request.offlineFileName || 'Biblioteca Offline',
+        score: 100,
+        quality: '1080p',
+        isPtBr: true,
+        isHls: false,
+      };
+      setStreams([offlineStream]);
+      setActiveStreamIndex(0);
+      setUseProxy(false);
+      setForceTranscode(false);
+      setPlayerMode('native');
+
+      if (request.offlineHasSubtitle) {
+        const subUrl = getOfflineSubtitleUrl(offlineId);
+        const offlineOpt: SubtitleTrackOption = {
+          id: `offline-sub-${offlineId}`,
+          label: 'Português (Brasil · Offline)',
+          langTag: 'PT-BR',
+          releaseName: 'Legenda salva localmente',
+          url: subUrl,
+        };
+        setSubtitle({ status: 'native-pt', language: 'pt-BR', url: subUrl });
+        setSubtitleOptions([offlineOpt]);
+        setActiveSubtitleId(offlineOpt.id);
+      } else {
+        setSubtitle({ status: 'none', language: 'pt-BR', url: null });
+        setSubtitleOptions([]);
+        setActiveSubtitleId(null);
+      }
+
+      setStatusMessage('Carregando arquivo offline...');
+      setPhase('loading-stream');
+      return;
+    }
+
     const controller = new AbortController();
     let active = true;
 
@@ -310,6 +583,13 @@ export function VideoPlayer({
 
         setStreams(data.streams);
         setSubtitle(data.subtitle);
+        setSubtitleOptions(data.subtitles ?? []);
+        const defaultOpt =
+          data.subtitle.status === 'auto-translated'
+            ? (data.subtitles ?? []).find((o) => o.langTag === 'IA PT-BR')
+            : (data.subtitles ?? []).find((o) => o.langTag === 'PT-BR') ??
+              (data.subtitles ?? [])[0];
+        setActiveSubtitleId(defaultOpt?.id ?? null);
         setActiveStreamIndex(0);
         setUseProxy(false);
         setForceTranscode(false);
@@ -375,6 +655,10 @@ export function VideoPlayer({
     request.type,
     request.season,
     request.episode,
+    request.offlineDownloadId,
+    request.offlineHasSubtitle,
+    request.offlineFileName,
+    request.title,
     addons,
     sourcePreferences.enableBuiltInProviders,
     sourcePreferences.torznabUrl,
@@ -781,6 +1065,98 @@ export function VideoPlayer({
     initialProgressPercent,
   ]);
 
+  // 2d. Descobre faixas de legenda embutidas no MKV/MP4 via /api/torrent-subtitles e prioriza PT-BR embutida
+  useEffect(() => {
+    if (
+      playerMode !== 'native' ||
+      activeStream?.sourceType !== 'torrent' ||
+      !activeStream.infoHash ||
+      phase === 'resolving' ||
+      phase === 'empty'
+    ) {
+      return;
+    }
+
+    const controller = new AbortController();
+    let active = true;
+
+    void fetchTorrentSubtitles(
+      activeStream.infoHash,
+      activeStream.fileIdx ?? 'auto',
+      controller.signal
+    ).then((embedded) => {
+      if (!active || embedded.length === 0) return;
+
+      setSubtitleOptions((prev) => {
+        const existingIds = new Set(prev.map((o) => o.id));
+        const fresh = embedded.filter((e) => !existingIds.has(e.id));
+        if (fresh.length === 0) return prev;
+        return [...fresh, ...prev].slice(0, 12);
+      });
+
+      // Prioridade automática #1 para usuários PT-BR: faixa embutida no vídeo em PT-BR
+      if (!userPickedSubRef.current && languageConfig.locale.toLowerCase() === 'pt-br') {
+        const embeddedPtBr = embedded.find((e) => e.embeddedLang === 'PT-BR');
+        if (embeddedPtBr) {
+          setActiveSubtitleId(embeddedPtBr.id);
+          setSubtitle({
+            status: 'native-pt',
+            language: 'pt-BR',
+            url: embeddedPtBr.url,
+          });
+          setSubtitlesEnabled(true);
+          setSubtitleOffset(0);
+        }
+      }
+    });
+
+    return () => {
+      active = false;
+      controller.abort();
+    };
+  }, [
+    playerMode,
+    activeStream?.sourceType,
+    activeStream?.infoHash,
+    activeStream?.fileIdx,
+    phase,
+    languageConfig.locale,
+  ]);
+
+  // 2e. Up Next automático para séries nos últimos 30s do episódio (contagem regressiva de 10s)
+  const remainingSeconds =
+    effectiveDuration > 60 && displayTime > 0 ? effectiveDuration - displayTime : Number.POSITIVE_INFINITY;
+  const showUpNext =
+    playerMode === 'native' &&
+    request.type === 'tv' &&
+    Boolean(onNextEpisode) &&
+    !upNextDismissed &&
+    phase === 'ready' &&
+    remainingSeconds <= 30 &&
+    remainingSeconds > 0;
+
+  useEffect(() => {
+    if (!showUpNext) {
+      setUpNextCountdown(null);
+      return;
+    }
+    setUpNextCountdown((prev) => (prev === null ? 10 : prev));
+  }, [showUpNext]);
+
+  useEffect(() => {
+    if (!showUpNext || upNextCountdown === null || !isPlaying) return;
+    if (upNextCountdown <= 0) {
+      flushProgress();
+      dubbingRef.current?.stop();
+      onNextEpisode?.();
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      setUpNextCountdown((prev) => (prev !== null ? prev - 1 : null));
+    }, 1000);
+    return () => window.clearTimeout(timer);
+  }, [showUpNext, upNextCountdown, isPlaying, flushProgress, onNextEpisode]);
+
   // 3. Controla visibilidade da faixa de legenda (showing / hidden)
   useEffect(() => {
     const video = videoRef.current;
@@ -1007,6 +1383,7 @@ export function VideoPlayer({
     video.muted = clamped === 0;
     setVolume(clamped);
     setMuted(clamped === 0);
+    showOsd(clamped === 0 ? 'Mudo' : `Volume: ${Math.round(clamped * 100)}%`);
   };
 
   const toggleMute = useCallback(() => {
@@ -1015,7 +1392,8 @@ export function VideoPlayer({
     const nextMuted = !video.muted;
     video.muted = nextMuted;
     setMuted(nextMuted);
-  }, []);
+    showOsd(nextMuted ? 'Mudo' : `Volume: ${Math.round((video.volume || 1) * 100)}%`);
+  }, [showOsd]);
 
   const toggleFullscreen = useCallback(() => {
     const el = containerRef.current;
@@ -1027,16 +1405,23 @@ export function VideoPlayer({
     }
   }, []);
 
-  const adjustSubtitleOffset = (delta: number) => {
-    shiftTrackCues(videoRef.current?.textTracks[0], delta);
-    setSubtitleOffset((prev) => Math.round((prev + delta) * 10) / 10);
-  };
+  const adjustSubtitleOffset = useCallback(
+    (delta: number) => {
+      shiftTrackCues(videoRef.current?.textTracks[0], delta);
+      setSubtitleOffset((prev) => {
+        const next = Math.round((prev + delta) * 10) / 10;
+        showOsd(`Delay da legenda: ${next > 0 ? `+${next.toFixed(1)}s` : `${next.toFixed(1)}s`}`);
+        return next;
+      });
+    },
+    [showOsd]
+  );
 
-  const resetSubtitleOffset = () => {
+  const resetSubtitleOffset = useCallback(() => {
     if (subtitleOffset !== 0) {
       adjustSubtitleOffset(-subtitleOffset);
     }
-  };
+  }, [subtitleOffset, adjustSubtitleOffset]);
 
   const handleSelectAudioTrack = (trackId: number) => {
     const hls = hlsRef.current;
@@ -1151,6 +1536,22 @@ export function VideoPlayer({
       } else if (e.key.toLowerCase() === 'm') {
         e.preventDefault();
         toggleMute();
+      } else if (e.key.toLowerCase() === 'a') {
+        e.preventDefault();
+        cycleAspectRatio();
+      } else if (e.key.toLowerCase() === 'c') {
+        e.preventDefault();
+        setSubtitlesEnabled((prev) => {
+          const next = !prev;
+          showOsd(next ? 'Legenda: Ligada' : 'Legenda: Desligada');
+          return next;
+        });
+      } else if (e.key.toLowerCase() === 'g') {
+        e.preventDefault();
+        adjustSubtitleOffset(-0.5);
+      } else if (e.key.toLowerCase() === 'h') {
+        e.preventDefault();
+        adjustSubtitleOffset(0.5);
       }
     };
 
@@ -1164,6 +1565,9 @@ export function VideoPlayer({
     seekBy,
     toggleFullscreen,
     toggleMute,
+    cycleAspectRatio,
+    adjustSubtitleOffset,
+    showOsd,
     scheduleControlsHide,
   ]);
 
@@ -1179,10 +1583,54 @@ export function VideoPlayer({
       transition={{ duration: 0.25 }}
       onMouseMove={scheduleControlsHide}
       onTouchStart={scheduleControlsHide}
+      onDragOver={(e) => {
+        if (playerMode !== 'native') return;
+        e.preventDefault();
+        if (!isDraggingSub) setIsDraggingSub(true);
+      }}
+      onDragLeave={(e) => {
+        if (e.currentTarget === e.target) setIsDraggingSub(false);
+      }}
+      onDrop={(e) => {
+        if (playerMode !== 'native') return;
+        e.preventDefault();
+        setIsDraggingSub(false);
+        const file = Array.from(e.dataTransfer.files).find((f) =>
+          /\.(srt|vtt|ass|ssa)$/i.test(f.name)
+        );
+        if (file) {
+          void handleUploadSubtitleFile(file);
+        }
+      }}
       className={`fixed inset-0 z-50 flex flex-col bg-black text-[#FAFAFA] select-none ${
         playerMode === 'embed' || showControls ? 'cursor-default' : 'cursor-none'
       }`}
     >
+      {/* Input oculto para upload de legenda própria (.srt / .vtt / .ass) */}
+      <input
+        ref={subtitleFileInputRef}
+        type="file"
+        accept=".srt,.vtt,.ass,.ssa"
+        onChange={(e) => {
+          const file = e.target.files?.[0];
+          e.target.value = '';
+          if (file) void handleUploadSubtitleFile(file);
+        }}
+        className="hidden"
+      />
+
+      {/* Overlay visual de arrastar e soltar legenda */}
+      {isDraggingSub && (
+        <div className="pointer-events-none absolute inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm">
+          <div className="flex flex-col items-center gap-2 rounded-2xl border border-dashed border-white/40 bg-[#121215]/95 px-8 py-6 text-center">
+            <Upload className="h-6 w-6 text-white" />
+            <p className="text-sm font-semibold text-white">
+              Solte o arquivo de legenda aqui
+            </p>
+            <p className="text-xs text-white/60">Suporta .srt, .vtt e .ass</p>
+          </div>
+        </div>
+      )}
       {/* Mídia: Vídeo Nativo ou Embed (imdb.su) */}
       {playerMode === 'embed' ? (
         <div className="relative h-full w-full bg-black pt-16">
@@ -1214,42 +1662,106 @@ export function VideoPlayer({
           )}
         </div>
       ) : (
-        <video
-          key={
-            activeStream
-              ? `${activeStream.id}-${useProxy ? 'proxy' : 'direct'}-${
-                  forceTranscode ? 'transcode' : 'raw'
-                }-s${seekOffset}`
-              : 'video-empty'
-          }
-          ref={videoRef}
-          crossOrigin="anonymous"
-          playsInline
-          onClick={() => {
-            if (activePopover) {
-              setActivePopover(null);
-            } else {
-              togglePlay();
+        <div className="flex h-full w-full items-center justify-center overflow-hidden bg-black">
+          <video
+            key={
+              activeStream
+                ? `${activeStream.id}-${useProxy ? 'proxy' : 'direct'}-${
+                    forceTranscode ? 'transcode' : 'raw'
+                  }-s${seekOffset}`
+                : 'video-empty'
             }
-          }}
-          onDoubleClick={toggleFullscreen}
-          className={`playhub-video h-full w-full bg-black object-contain ${
-            showControls ? 'hud-visible' : ''
-          }`}
-        >
-          {effectiveSubtitleUrl && (
-            <track
-              ref={trackRef}
-              key={effectiveSubtitleUrl}
-              default
-              kind="subtitles"
-              src={effectiveSubtitleUrl}
-              srcLang={languageConfig.locale}
-              label={languageConfig.label}
-            />
-          )}
-        </video>
+            ref={videoRef}
+            crossOrigin="anonymous"
+            playsInline
+            onClick={() => {
+              if (activePopover) {
+                setActivePopover(null);
+              } else {
+                togglePlay();
+              }
+            }}
+            onDoubleClick={toggleFullscreen}
+            className={`playhub-video sub-${subtitleSize} bg-black ${getAspectVideoClass(
+              aspectRatio
+            )} ${showControls ? 'hud-visible' : ''}`}
+          >
+            {effectiveSubtitleUrl && (
+              <track
+                ref={trackRef}
+                key={effectiveSubtitleUrl}
+                default
+                kind="subtitles"
+                src={effectiveSubtitleUrl}
+                srcLang={languageConfig.locale}
+                label={languageConfig.label}
+              />
+            )}
+          </video>
+        </div>
       )}
+
+      {/* OSD Minimalista (1.5s) para proporção, volume, legenda e sincronia */}
+      <AnimatePresence>
+        {osdMessage && (
+          <motion.div
+            key={osdMessage}
+            initial={{ opacity: 0, y: -6, scale: 0.97 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: -6, scale: 0.97 }}
+            transition={{ duration: 0.16 }}
+            className="pointer-events-none fixed left-1/2 top-20 z-50 -translate-x-1/2"
+          >
+            <div className="rounded-full border border-white/15 bg-[#121215]/90 px-4 py-1.5 text-xs font-medium text-white shadow-2xl backdrop-blur-xl tabular-nums">
+              {osdMessage}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Card compacto Up Next (últimos 30s de episódio de série) */}
+      <AnimatePresence>
+        {showUpNext && upNextCountdown !== null && (
+          <motion.div
+            initial={{ opacity: 0, y: 16, scale: 0.96 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 12, scale: 0.96 }}
+            transition={{ type: 'spring', stiffness: 360, damping: 30 }}
+            className="fixed bottom-28 right-6 z-50 w-72 rounded-2xl border border-white/15 bg-[#121215]/95 p-4 shadow-2xl backdrop-blur-xl"
+          >
+            <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-white/55">
+              A seguir
+            </p>
+            <p className="mt-1 text-sm font-semibold text-white tabular-nums">
+              Próximo episódio em {upNextCountdown}s
+            </p>
+            <p className="mt-0.5 truncate text-xs text-white/65">
+              {request.title} · T{request.season ?? 1} E{(request.episode ?? 1) + 1}
+            </p>
+            <div className="mt-3.5 flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  flushProgress();
+                  dubbingRef.current?.stop();
+                  onNextEpisode?.();
+                }}
+                className="inline-flex h-8 flex-1 items-center justify-center gap-1.5 rounded-xl bg-white px-3 text-xs font-semibold text-zinc-950 transition-colors hover:bg-zinc-200"
+              >
+                <Play className="h-3 w-3 fill-zinc-950" />
+                <span>Assistir agora</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setUpNextDismissed(true)}
+                className="h-8 rounded-xl border border-white/15 bg-white/5 px-3 text-xs font-medium text-white/80 transition-colors hover:bg-white/15 hover:text-white"
+              >
+                Cancelar
+              </button>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Aviso discreto por 4s quando alterna automaticamente para imdb.su */}
       <AnimatePresence>
@@ -1590,6 +2102,118 @@ export function VideoPlayer({
                   </button>
                 </div>
 
+                {/* Botão Baixar esta fonte (salva no disco o torrent atual) */}
+                {playerMode === 'native' &&
+                  !isOfflinePlayback &&
+                  activeStream?.sourceType === 'torrent' &&
+                  activeStream.infoHash &&
+                  onStartDownload && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        void onStartDownload({
+                          imdbId: request.imdbId,
+                          tmdbId: request.tmdbId,
+                          mediaType: request.type,
+                          title: request.title,
+                          season: request.season,
+                          episode: request.episode,
+                          posterPath: item.poster_path,
+                          backdropPath: request.stillPath || item.backdrop_path,
+                          quality: activeStream.resolution || activeStream.quality,
+                          infoHash: activeStream.infoHash,
+                          fileIdx: activeStream.fileIdx ?? 'auto',
+                        })
+                          .then(() => showOsd('Download iniciado em segundo plano'))
+                          .catch(() => showOsd('Erro ao iniciar download'));
+                      }}
+                      title="Baixar esta fonte para assistir offline"
+                      className="inline-flex h-8 items-center gap-1.5 rounded-full border border-white/15 bg-black/55 px-3 text-[11px] font-medium text-white/90 backdrop-blur-md transition-colors hover:bg-white/15 hover:text-white"
+                    >
+                      <Download className="h-3.5 w-3.5" />
+                      <span className="hidden lg:inline">Baixar</span>
+                    </button>
+                  )}
+
+                {/* Botão Player Externo (VLC / MPV) no modo Player Nativo */}
+                {playerMode === 'native' && externalStreamUrl && (
+                  <div className="relative">
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setActivePopover((prev) => (prev === 'external' ? null : 'external'));
+                      }}
+                      title="Abrir no VLC / MPV ou copiar link do stream"
+                      className={`inline-flex h-8 items-center gap-1.5 rounded-full border px-3 text-[11px] font-medium backdrop-blur-md transition-colors ${
+                        activePopover === 'external'
+                          ? 'border-white/25 bg-white text-zinc-950'
+                          : 'border-white/15 bg-black/55 text-white/90 hover:bg-white/15 hover:text-white'
+                      }`}
+                    >
+                      <ExternalLink className="h-3.5 w-3.5" />
+                      <span className="hidden sm:inline">Player Externo</span>
+                    </button>
+
+                    <AnimatePresence>
+                      {activePopover === 'external' && (
+                        <motion.div
+                          initial={{ opacity: 0, y: 6, scale: 0.98 }}
+                          animate={{ opacity: 1, y: 0, scale: 1 }}
+                          exit={{ opacity: 0, y: 4, scale: 0.98 }}
+                          transition={{ duration: 0.16 }}
+                          onClick={(e) => e.stopPropagation()}
+                          className="absolute right-0 top-10 z-50 w-64 rounded-2xl border border-white/10 bg-[#121215]/95 p-3 shadow-2xl backdrop-blur-xl"
+                        >
+                          <p className="px-2 pb-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-white/55">
+                            Player Externo (VLC / MPV)
+                          </p>
+                          <div className="space-y-1">
+                            <button
+                              type="button"
+                              onClick={handleDownloadExternalM3u}
+                              className="flex w-full items-center gap-2.5 rounded-xl px-2.5 py-2 text-left text-xs font-medium text-white transition-colors hover:bg-white/10"
+                            >
+                              <ExternalLink className="h-3.5 w-3.5 shrink-0 text-white/75" />
+                              <div>
+                                <p>Abrir no VLC / MPV (.m3u)</p>
+                                <p className="text-[10px] font-normal text-white/50">
+                                  Stream direto sem transcode
+                                </p>
+                              </div>
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => void handleCopyStreamLink()}
+                              className="flex w-full items-center gap-2.5 rounded-xl px-2.5 py-2 text-left text-xs font-medium text-white/85 transition-colors hover:bg-white/10 hover:text-white"
+                            >
+                              {copiedStreamLink ? (
+                                <Check className="h-3.5 w-3.5 shrink-0 text-white" />
+                              ) : (
+                                <Copy className="h-3.5 w-3.5 shrink-0 text-white/75" />
+                              )}
+                              <span>
+                                {copiedStreamLink ? 'Link copiado!' : 'Copiar link do stream'}
+                              </span>
+                            </button>
+
+                            <button
+                              type="button"
+                              disabled={!effectiveSubtitleUrl}
+                              onClick={() => void handleDownloadCurrentSubtitleSrt()}
+                              className="flex w-full items-center gap-2.5 rounded-xl px-2.5 py-2 text-left text-xs font-medium text-white/85 transition-colors hover:bg-white/10 hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
+                            >
+                              <Download className="h-3.5 w-3.5 shrink-0 text-white/75" />
+                              <span>Baixar legenda atual (.srt)</span>
+                            </button>
+                          </div>
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+                  </div>
+                )}
+
                 {/* Toggle rápido do Overlay de Legenda / Dublagem PlayHub (somente no modo Embed) */}
                 {playerMode === 'embed' && subtitle?.url && (
                   <button
@@ -1648,33 +2272,35 @@ export function VideoPlayer({
             {playerMode === 'native' && (
             <div className="pointer-events-auto relative mt-auto flex flex-col bg-gradient-to-t from-black/90 via-black/55 to-transparent px-5 pb-5 pt-14 sm:px-8 sm:pb-7">
               <AnimatePresence>
-                {activePopover && (
+                {activePopover && activePopover !== 'external' && (
                   <motion.div
                     initial={{ opacity: 0, y: 10, scale: 0.98 }}
                     animate={{ opacity: 1, y: 0, scale: 1 }}
                     exit={{ opacity: 0, y: 8, scale: 0.98 }}
                     transition={{ type: 'spring', stiffness: 400, damping: 32 }}
                     onClick={(e) => e.stopPropagation()}
-                    className="relative z-50 mb-3 ml-auto w-full max-w-xs rounded-2xl border border-white/10 bg-[#121215]/95 p-4 shadow-2xl backdrop-blur-xl"
+                    className="relative z-50 mb-3 ml-auto w-full max-w-sm rounded-2xl border border-white/10 bg-[#121215]/95 p-4 shadow-2xl backdrop-blur-xl"
                   >
-                    {/* Popover: Legendas & Sincronia */}
+                    {/* Popover: Legendas, Lista Múltipla, Upload Local & Sincronia */}
                     {activePopover === 'subtitles' && (
-                      <div className="space-y-4">
+                      <div className="space-y-3.5">
                         <div className="flex items-center justify-between">
                           <div>
                             <p className="text-xs font-semibold uppercase tracking-[0.12em] text-white/60">
                               Legendas
                             </p>
                             <p className="mt-0.5 text-xs text-white/85">
-                              {subtitle?.status === 'native-pt' || subtitle?.status === 'native'
-                                ? `${languageConfig.shortLabel} Nativa`
-                                : subtitle?.status === 'auto-translated'
-                                  ? `${languageConfig.shortLabel} Traduzida Auto`
-                                  : 'Indisponível'}
+                              {activeSubtitleOption
+                                ? `${activeSubtitleOption.langTag} · ${activeSubtitleOption.label}`
+                                : subtitle?.status === 'native-pt' || subtitle?.status === 'native'
+                                  ? `${languageConfig.shortLabel} Nativa`
+                                  : subtitle?.status === 'auto-translated'
+                                    ? `${languageConfig.shortLabel} Traduzida Auto`
+                                    : 'Nenhuma ativa'}
                             </p>
                           </div>
 
-                          {subtitle?.url && (
+                          {effectiveSubtitleUrl && (
                             <button
                               type="button"
                               onClick={() => setSubtitlesEnabled((prev) => !prev)}
@@ -1689,17 +2315,92 @@ export function VideoPlayer({
                           )}
                         </div>
 
-                        {subtitle?.url && (
+                        {/* Lista de legendas selecionáveis */}
+                        {subtitleOptions.length > 0 && (
+                          <div className="max-h-48 space-y-1 overflow-y-auto border-t border-white/10 pt-2.5 pr-0.5">
+                            {subtitleOptions.map((opt) => {
+                              const selected = opt.id === activeSubtitleId;
+                              return (
+                                <button
+                                  key={opt.id}
+                                  type="button"
+                                  onClick={() => handleSelectSubtitleOption(opt)}
+                                  className={`flex w-full items-start justify-between gap-2 rounded-xl border px-2.5 py-2 text-left transition-colors ${
+                                    selected
+                                      ? 'border-white/20 bg-white/12 text-white'
+                                      : 'border-transparent text-white/75 hover:bg-white/[0.06] hover:text-white'
+                                  }`}
+                                >
+                                  <div className="min-w-0 flex-1">
+                                    <div className="flex items-center gap-1.5">
+                                      <span className="shrink-0 rounded bg-white/15 px-1.5 py-0.5 text-[9px] font-semibold tracking-wide text-white">
+                                        {opt.langTag}
+                                      </span>
+                                      <span className="truncate text-xs font-medium">
+                                        {opt.label}
+                                      </span>
+                                    </div>
+                                    <p className="mt-0.5 truncate text-[10px] text-white/50">
+                                      {opt.releaseName}
+                                    </p>
+                                  </div>
+                                  {selected && <Check className="mt-0.5 h-3.5 w-3.5 shrink-0" />}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        )}
+
+                        {/* Upload de legenda própria (.srt / .vtt / .ass) */}
+                        <div className="border-t border-white/10 pt-2.5">
+                          <button
+                            type="button"
+                            onClick={() => subtitleFileInputRef.current?.click()}
+                            className="flex w-full items-center justify-center gap-2 rounded-xl border border-white/15 bg-white/[0.06] px-3 py-2 text-xs font-medium text-white transition-colors hover:bg-white/12"
+                          >
+                            <Upload className="h-3.5 w-3.5" />
+                            <span>Carregar legenda (.srt / .vtt / .ass)</span>
+                          </button>
+                        </div>
+
+                        {/* Tamanho da Legenda (P / M / G) */}
+                        <div className="flex items-center justify-between border-t border-white/10 pt-2.5">
+                          <span className="text-xs text-white/70">Tamanho</span>
+                          <div className="flex items-center gap-1 rounded-lg border border-white/10 bg-white/[0.04] p-0.5">
+                            {(
+                              [
+                                ['sm', 'P'],
+                                ['md', 'M'],
+                                ['lg', 'G'],
+                              ] as const
+                            ).map(([sizeKey, sizeLabel]) => (
+                              <button
+                                key={sizeKey}
+                                type="button"
+                                onClick={() => handleChangeSubtitleSize(sizeKey)}
+                                className={`h-6 w-8 rounded-md text-xs font-semibold transition-colors ${
+                                  subtitleSize === sizeKey
+                                    ? 'bg-white text-zinc-950'
+                                    : 'text-white/70 hover:text-white'
+                                }`}
+                              >
+                                {sizeLabel}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+
+                        {effectiveSubtitleUrl && (
                           <div className="border-t border-white/10 pt-3">
                             <div className="flex items-center justify-between text-xs text-white/70">
-                              <span>Sincronia</span>
+                              <span>Delay da Legenda</span>
                               <span className="font-mono tabular-nums text-white">
                                 {subtitleOffset > 0
                                   ? `+${subtitleOffset.toFixed(1)}s`
                                   : `${subtitleOffset.toFixed(1)}s`}
                               </span>
                             </div>
-                            <div className="mt-2.5 grid grid-cols-3 gap-2">
+                            <div className="mt-2 grid grid-cols-3 gap-2">
                               <button
                                 type="button"
                                 onClick={() => adjustSubtitleOffset(-0.5)}
@@ -1774,8 +2475,8 @@ export function VideoPlayer({
                                 Dublagem IA (PT-BR)
                               </p>
                               <p className="text-[11px] text-white/55">
-                                {!subtitle?.url
-                                  ? 'Requer legenda PT-BR'
+                                {!effectiveSubtitleUrl
+                                  ? 'Requer legenda ativa'
                                   : hasNativePtBrAudio
                                     ? 'Áudio PT-BR nativo ativo'
                                     : 'Voz neural com pré-carregamento'}
@@ -1783,7 +2484,7 @@ export function VideoPlayer({
                             </div>
                             <button
                               type="button"
-                              disabled={!subtitle?.url || hasNativePtBrAudio}
+                              disabled={!effectiveSubtitleUrl || hasNativePtBrAudio}
                               onClick={() => setAiDubbingEnabled((prev) => !prev)}
                               className={`rounded-lg px-2.5 py-1 text-xs font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
                                 aiDubbingActive
@@ -1844,6 +2545,43 @@ export function VideoPlayer({
                               </div>
                             </>
                           )}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Popover: Proporção de Tela (Aspect Ratio) */}
+                    {activePopover === 'aspect' && (
+                      <div className="space-y-2.5">
+                        <div className="flex items-center justify-between">
+                          <p className="text-xs font-semibold uppercase tracking-[0.12em] text-white/60">
+                            Proporção de Tela
+                          </p>
+                          <kbd className="rounded border border-white/15 bg-white/5 px-1.5 py-0.5 font-mono text-[10px] text-white/70">
+                            A
+                          </kbd>
+                        </div>
+                        <div className="space-y-1">
+                          {ASPECT_RATIO_OPTIONS.map((opt) => {
+                            const selected = opt.id === aspectRatio;
+                            return (
+                              <button
+                                key={opt.id}
+                                type="button"
+                                onClick={() => {
+                                  handleSelectAspectRatio(opt.id);
+                                  setActivePopover(null);
+                                }}
+                                className={`flex w-full items-center justify-between rounded-xl px-3 py-2 text-left text-xs transition-colors ${
+                                  selected
+                                    ? 'bg-white/12 font-semibold text-white'
+                                    : 'text-white/75 hover:bg-white/5 hover:text-white'
+                                }`}
+                              >
+                                <span>{opt.label}</span>
+                                {selected && <Check className="h-3.5 w-3.5 shrink-0" />}
+                              </button>
+                            );
+                          })}
                         </div>
                       </div>
                     )}
@@ -2063,13 +2801,34 @@ export function VideoPlayer({
                     className={`flex h-9 items-center gap-1.5 rounded-xl px-2.5 text-xs font-medium transition-colors ${
                       activePopover === 'subtitles'
                         ? 'bg-white text-zinc-950'
-                        : subtitlesEnabled && subtitle?.url
+                        : subtitlesEnabled && effectiveSubtitleUrl
                           ? 'bg-white/15 text-white hover:bg-white/20'
                           : 'text-white/80 hover:bg-white/10 hover:text-white'
                     }`}
                   >
                     <Subtitles className="h-4 w-4" />
                     <span className="hidden md:inline">Legendas</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setActivePopover((prev) => (prev === 'aspect' ? null : 'aspect'))
+                    }
+                    aria-label="Proporção de tela"
+                    title="Proporção de tela (A)"
+                    className={`flex h-9 items-center gap-1.5 rounded-xl px-2.5 text-xs font-medium transition-colors ${
+                      activePopover === 'aspect'
+                        ? 'bg-white text-zinc-950'
+                        : aspectRatio !== 'original'
+                          ? 'bg-white/15 text-white hover:bg-white/20'
+                          : 'text-white/80 hover:bg-white/10 hover:text-white'
+                    }`}
+                  >
+                    <Ratio className="h-4 w-4" />
+                    <span className="hidden lg:inline">
+                      {ASPECT_RATIO_OPTIONS.find((o) => o.id === aspectRatio)?.short ?? 'Proporção'}
+                    </span>
                   </button>
 
                   <button

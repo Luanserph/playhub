@@ -86,8 +86,13 @@ export function ContinueWatchingRow({
           <AnimatePresence initial={false}>
             {entries.map((entry, idx) => {
               const title = entry.item.title || entry.item.name || 'Sem título';
-              const imagePath = entry.item.backdrop_path || entry.item.poster_path;
-              const imageSize = entry.item.backdrop_path ? 'original' : 'w500';
+              const imagePath =
+                entry.stillPath || entry.item.backdrop_path || entry.item.poster_path;
+              const imageSize = entry.stillPath
+                ? 'w500'
+                : entry.item.backdrop_path
+                  ? 'w780'
+                  : 'w500';
               const imageUrl = getImageUrl(imagePath, imageSize);
               const isImageFailed = Boolean(failedImageKeys[entry.key]);
 
@@ -201,7 +206,7 @@ export function ContinueWatchingRow({
                       <div className="mt-0.5 flex items-center gap-1.5 text-[12px] text-[var(--ph-text-muted)] tabular-nums">
                         <span>
                           {entry.item.media_type === 'tv'
-                            ? `T${entry.season ?? 1} · E${entry.episode ?? 1}`
+                            ? `T${entry.season ?? 1} · E${String(entry.episode ?? 1).padStart(2, '0')}`
                             : 'Filme'}
                         </span>
                         <span className="opacity-40">·</span>

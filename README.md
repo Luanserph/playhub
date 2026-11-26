@@ -1,103 +1,90 @@
-# PlayHub
+<p align="center">
+  <img src="./public/favicon.svg" alt="PlayHub" width="76" height="76" />
+</p>
 
-Catálogo editorial minimalista de filmes e séries com **Player Híbrido** (Player Nativo P2P/HLS com `torrent-stream` + FFmpeg/NVENC e Modo Embed `imdb.su`), agregador multi-fontes, legendas automáticas traduzidas no idioma do sistema e Dublagem Neural via Edge-TTS.
+<h1 align="center">PlayHub</h1>
 
----
+<p align="center">
+  Catálogo editorial limpo e reprodução instantânea de filmes e séries, unindo a praticidade do <code>imdb.su</code> com um player nativo e experiência de cinema em casa.
+</p>
 
-## Recursos Atuais
+<p align="center">
+  <img src="https://img.shields.io/badge/status-em%20desenvolvimento%20ativo-18181B?style=flat-square" alt="Em desenvolvimento ativo" />
+  <img src="https://img.shields.io/badge/React%20%2B%20Fastify-TypeScript-27272A?style=flat-square" alt="React + Fastify TypeScript" />
+</p>
 
-- **Catálogo Completo TMDB com Scroll Infinito**
-  - Home editorial com trilhos (*Continuar Assistindo*, *Em Alta*, *Filmes Populares*, *Séries em Destaque*, *Mais Bem Avaliados* e *Lançamentos*) e atalho **Ver tudo**.
-  - Abas **Filmes** e **Séries** baseadas em `/discover` com scroll infinito e filtros por gênero, ordenação e ano.
-  - **Busca Inteligente (`Ctrl+K`)**: pesquise por título ou cole diretamente um **ID (`tt...`) ou link do IMDb** para abrir o título imediatamente.
-- **Player Nativo (`torrent-stream` + FFmpeg/NVENC) & Seek Real**
-  - Streaming P2P direto no navegador via `torrent-stream` com DHT e trackers públicos reforçados.
-  - Remux/Transcode em tempo real via FFmpeg (com aceleração GPU `h264_nvenc` para HEVC e fallback automático para `libx264` em CPU) para arquivos `.mkv`/`.avi`/HEVC/AC3/EAC3/DTS, mantendo streaming direto via `Range` (`206`) para MP4 compatível.
-  - **Seek rápido real**: duração real detectada via `ffprobe`, seek preciso na barra de progresso (`+10s`/`-10s` e setas) usando fast input seek (`-ss` antes de `-i`) e retomada automática do ponto salvo em *Continuar Assistindo*.
-- **Modo Híbrido (`imdb.su`)**
-  - Alternância instantânea entre **Player Nativo** e **Modo Embed (`imdb.su`)**, com preferência configurável nas Configurações (Modo Nativo ou Embed como padrão) e troca rápida de fontes sem travar a interface.
-- **Agregador Multi-Fontes**
-  - Suporte a **Add-ons Stremio** (com normalização automática de `stremio://` e carregamento automático de listas de add-ons via URL), além de fontes integradas **YTS**, **EZTV**, **APIBay** e indexadores **Torznab** (Jackett/Prowlarr).
-  - Classificação e metadados precisos por resolução (`4K`/`1080p`/`720p`/`480p`), seeders, tamanho e tags de áudio (`PT-BR`, `DUAL`, `DUBLADO`, `MULTI`, etc.).
-- **Legendas Automáticas & Tradução pelo Idioma do Sistema**
-  - Detecção automática do idioma do sistema (`navigator.language`) aplicada ao catálogo TMDB, busca de legendas (OpenSubtitles), tradução automática e seleção de vozes neurais.
-  - Sincronização de legendas VTT com o offset de seek (`&offset=`) e prevenção de duplicidade no modo Embed.
-- **Dublagem Neural (Edge-TTS)**
-  - Narração sincronizada por faixa de legenda usando `msedge-tts` com seleção de voz feminina/masculina no idioma ativo e reinicialização limpa ao avançar/retroceder o vídeo.
-- **Sincronização Local & Backup JSON**
-  - Estado persistido automaticamente em disco no backend (`server/data/store.json`), sincronizando add-ons, preferências, favoritos, avaliações, histórico e chave TMDB entre navegadores (Chrome, Brave, Edge).
-  - Exportação e importação em JSON nas Configurações, com opção de incluir ou omitir a chave pessoal do TMDB no backup.
+> **Aviso:** o PlayHub está em **desenvolvimento ativo**, recebendo melhorias frequentes na interface, fontes e player — e em breve ganhará builds instaláveis para Windows e Android.
 
 ---
 
-## Pré-requisitos
+## O que o PlayHub faz hoje
 
-- **Node.js** 20+ (com `npm`)
-- **FFmpeg** e **FFprobe** instalados e disponíveis no `PATH` do sistema (necessário para remux/transcode em tempo real e detecção de duração de arquivos MKV/HEVC)
-  - Verifique com:
-    ```bash
-    ffmpeg -version
-    ffprobe -version
-    ```
+- **Catálogo TMDB completo com proxy e cache local:** carrega filmes, séries, detalhes em tela cheia (com slideshow de backdrops, logo oficial, elenco, ficha técnica, temporadas/episódios e títulos semelhantes) usando proxy server-side (`/api/tmdb` e `/api/tmdb-image`) com cache em memória e fallback automático.
+- **Busca Spotlight (`Ctrl+K`):** pesquise instantaneamente por nome ou cole direto um link/ID do IMDb (ex: `tt0371746`).
+- **Player Nativo + Modo Híbrido (`imdb.su`):**
+  - Reprodução P2P local com `torrent-stream` + remux/transcode inteligente via FFmpeg (com suporte a NVENC quando disponível), seek rápido e controle de **Proporção de Tela** (`Ajustar`, `Preencher`, `Esticar`, `16:9`, `4:3`, `21:9`).
+  - Alternância com 1 clique para o modo **Embed (`imdb.su`)** quando preferir iniciar sem esperar peers.
+  - **Up Next automático** nos últimos 30 segundos de episódios de séries.
+- **Legendas Multi-Fonte e Upload Local:**
+  - Busca paralela no **OpenSubtitles**, **Wyzie Subs** e faixas **embutidas no próprio MKV/MP4** (extraídas sob demanda via `ffprobe`/`ffmpeg`).
+  - Separação estrita entre **PT-BR** real (`pob`/`pt-br`) e **PT-PT** (`por`), com tradução automática **IA PT-BR** quando não houver legenda brasileira nativa.
+  - Suporte a upload próprio e arrastar-e-soltar (`.srt`, `.vtt` e `.ass`), ajuste de tamanho (`P` / `M` / `G`) e sincronia (`-0.5s` / `+0.5s`).
+- **Dublagem Neural opcional (Edge-TTS):** sintetiza falas a partir da legenda ativa com redução suave do áudio original (audio ducking) e pré-carregamento.
+- **Player Externo (VLC / MPV):** baixa um arquivo `playhub-stream.m3u` apontando direto para o stream bruto (`/api/torrent-raw`), copia o link do vídeo ou exporta a legenda ativa em `.srt`.
+- **Downloads e Biblioteca Offline (com legenda PT-BR automática):** baixe filmes e episódios direto para a sua pasta local (com pausa, retomada real por peças verificadas, download automático da legenda `PT-BR` junto ao vídeo e reprodução 100% offline com suporte a `Range`/FFmpeg).
+- **Sincronização e Backup JSON:** listas, histórico ("Continuar Assistindo" em 16:9), notas, preferências e add-ons sincronizam localmente e podem ser exportados/importados em JSON.
 
 ---
 
-## Instalação e Execução
+## Atalhos do Player
+
+| Tecla | Ação |
+| :---: | :--- |
+| `Espaço` / `K` | Pausar ou continuar |
+| `←` / `→` | Voltar ou avançar 10 segundos |
+| `A` | Alternar proporção de tela (Aspect Ratio) |
+| `C` | Ligar ou desligar legendas |
+| `G` / `H` | Ajustar delay da legenda (`-0.5s` / `+0.5s`) |
+| `M` | Silenciar / ativar som |
+| `F` | Tela cheia |
+| `Esc` | Fechar popover ou sair do player |
+
+---
+
+## Como rodar localmente
+
+Você só precisa do **Node.js 20+** instalado (e `ffmpeg` no PATH caso queira remux/transcode de MKV e extração de legendas embutidas).
+
+### 1. Instale as dependências (frontend e backend)
 
 ```bash
-# 1. Instalar dependências do frontend (raiz do projeto)
 npm install
-
-# 2. Instalar dependências do backend
-cd server
-npm install
-cd ..
+cd server && npm install && cd ..
 ```
 
-Para rodar em modo de desenvolvimento, abra **dois terminais**:
+### 2. Inicie o backend e o frontend
 
-**Terminal 1 — Backend (porta `3001`):**
+Em um terminal, suba o servidor local (`http://127.0.0.1:3001`):
+
 ```bash
 cd server
 npm run dev
 ```
 
-**Terminal 2 — Frontend (porta `5173`):**
+Em outro terminal, suba a interface web (`http://localhost:5173`):
+
 ```bash
 npm run dev
 ```
 
-Acesse `http://localhost:5173` no navegador.
+### 3. Conecte sua chave gratuita do TMDB
 
-### Build de Produção
-
-```bash
-# Frontend
-npm run build
-
-# Backend
-cd server
-npm run build
-npm start
-```
+Não é necessário editar arquivos `.env`. Ao abrir o PlayHub pela primeira vez, o **Guia Inicial** aparece automaticamente: basta colar sua **API Key (v3)** ou **Token de Leitura (v4)** do TMDB e clicar em **Testar e Salvar** — o catálogo carrega na hora.
 
 ---
 
-## Primeiro Uso
+## Próximos passos (Roadmap)
 
-Não é necessário editar nenhum arquivo `.env` para começar a usar o PlayHub:
-
-1. Inicie o backend e o frontend e abra `http://localhost:5173`.
-2. Na primeira execução (sem chave TMDB configurada), o **Guia Inicial do PlayHub** abrirá automaticamente.
-3. Crie uma conta gratuita no [TMDB](https://www.themoviedb.org/settings/api) e copie sua **Chave da API (v3)** ou **Token de Acesso de Leitura (v4)** — ambos os formatos são reconhecidos automaticamente.
-4. Cole a chave no assistente inicial (ou depois em **Configurações → Conexão com Catálogo (TMDB)**) e clique em **Testar e Salvar**.
-5. O catálogo será carregado imediatamente e a configuração ficará salva em `server/data/store.json`.
-
-> Caso prefira configurar via variável de ambiente, copie `.env.example` para `.env` na raiz e preencha `VITE_TMDB_API_KEY` (usada como fallback caso nenhuma chave esteja salva nas Configurações).
-
----
-
-## Roadmap
-
-- [ ] **App Desktop Windows (Tauri)** — empacotamento nativo `.msi`/`.exe` com backend local embarcado e atualizações via GitHub Releases.
-- [ ] **App Android APK (Capacitor)** — experiência mobile dedicada com suporte ao catálogo, player híbrido e sincronização de configurações.
+- [ ] **Instalador Windows Tudo-em-Um (Tauri `.exe`):** app desktop nativo empacotando interface, servidor local e FFmpeg — sem precisar instalar Node ou configurar nada manualmente.
+- [ ] **App Android (APK):** versão mobile dedicada para assistir na palma da mão ou transmitir na TV.
+- [ ] **Mais fontes e refinamentos:** novos provedores, melhorias contínuas na detecção de faixas e ajustes finos na interface.

@@ -6,18 +6,33 @@ import {
   readStore,
   type PlayHubStoreData,
 } from './services/configStore';
+import {
+  deleteDownload,
+  getResolvedDownloadDir,
+  listDownloads,
+  pauseDownload,
+  resumeDownload,
+  serveOfflineFileAttachment,
+  serveOfflineSubtitleVtt,
+  startDownload,
+  streamOfflineDownload,
+  type StartDownloadInput,
+} from './services/downloadManager';
 import { handleStreamProxy } from './services/streamProxy';
 import { resolveStreams, type StreamMediaType } from './services/streamResolver';
 import { handleTmdbImageProxy, handleTmdbProxy } from './services/tmdbProxy';
 import {
   getCachedSubtitle,
+  getVttByTrackId,
   resolveSubtitle,
   shiftVttByOffset,
 } from './services/subtitleService';
 import {
+  extractTorrentSubtitleVtt,
   getLastStreamError,
   getTorrentMeta,
   getTorrentStatus,
+  getTorrentSubtitles,
   handleTorrentRaw,
   handleTorrentStream,
 } from './services/torrentStream';
@@ -53,6 +68,7 @@ interface ResolveBody {
 }
 
 interface SubtitleQuery {
+  trackId?: string;
   type?: string;
   imdbId?: string;
   season?: string;
@@ -141,7 +157,7 @@ async function start() {
       }
       cb(null, true);
     },
-    methods: ['GET', 'POST', 'PUT', 'OPTIONS'],
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   });
 
   // 1. Healthcheck
@@ -248,15 +264,15 @@ async function start() {
     const subtitleUrl =
       subtitleEntry.status !== 'none' && subtitleEntry.vtt
         ? buildVttUrl(
-            type,
-            imdbId,
-            season,
-            episode,
-            autoTranslate,
-            subtitleEntry.language,
-            iso2 ?? subtitleEntry.language.slice(0, 2).toLowerCase(),
-            openSubCodes
-          )
+          type,
+          imdbId,
+          season,
+          episode,
+          autoTranslate,
+          subtitleEntry.language,
+          iso2 ?? subtitleEntry.language.slice(0, 2).toLowerCase(),
+          openSubCodes
+        )
         : null;
 
     return {
@@ -267,6 +283,7 @@ async function start() {
         language: subtitleEntry.language,
         url: subtitleUrl,
       },
+      subtitles: subtitleEntry.options,
     };
   });
 
@@ -308,22 +325,37 @@ async function start() {
       url:
         entry.status !== 'none' && entry.vtt
           ? buildVttUrl(
-              type,
-              imdbId,
-              season,
-              episode,
-              autoTranslate,
-              entry.language,
-              iso2 ?? entry.language.slice(0, 2).toLowerCase(),
-              openSubCodes
-            )
+            type,
+            imdbId,
+            season,
+            episode,
+            autoTranslate,
+            entry.language,
+            iso2 ?? entry.language.slice(0, 2).toLowerCase(),
+            openSubCodes
+          )
           : null,
     };
   });
 
-  // 4. Proxy / entrega de WebVTT (sem erro de CORS)
+  // 4. Proxy / entrega de WebVTT (sem erro de CORS — suporta ?trackId= ou ?type=&imdbId=)
   app.get<{ Querystring: SubtitleQuery }>('/api/subtitles/vtt', async (request, reply) => {
     const q = request.query;
+    const offsetSec = q.offset ? Number(q.offset) : 0;
+
+    if (typeof q.trackId === 'string' && q.trackId.trim()) {
+      const vtt = await getVttByTrackId(q.trackId.trim());
+      if (!vtt) {
+        return reply.status(404).type('text/plain; charset=utf-8').send('Legenda não encontrada.');
+      }
+      const outputVtt =
+        Number.isFinite(offsetSec) && offsetSec > 0 ? shiftVttByOffset(vtt, offsetSec) : vtt;
+      return reply
+        .header('Content-Type', 'text/vtt; charset=utf-8')
+        .header('Cache-Control', offsetSec > 0 ? 'no-cache' : 'public, max-age=3600')
+        .send(outputVtt);
+    }
+
     const type = parseMediaType(q.type);
     const imdbId = typeof q.imdbId === 'string' ? q.imdbId.trim() : '';
 
@@ -355,7 +387,6 @@ async function start() {
       return reply.status(404).type('text/plain; charset=utf-8').send('Legenda não encontrada.');
     }
 
-    const offsetSec = q.offset ? Number(q.offset) : 0;
     const outputVtt =
       Number.isFinite(offsetSec) && offsetSec > 0
         ? shiftVttByOffset(entry.vtt, offsetSec)
@@ -468,6 +499,74 @@ async function start() {
     }
   );
 
+  // 6e. Lista faixas de legenda baseadas em texto embutidas no MKV/MP4 do torrent via ffprobe
+  app.get<{
+    Params: { infoHash: string; fileIdx: string };
+    Querystring: { tr?: string | string[] };
+  }>('/api/torrent-subtitles/:infoHash/:fileIdx', async (request, reply) => {
+    const { infoHash, fileIdx } = request.params;
+    if (!/^([a-f0-9]{40}|[a-z2-7]{32})$/i.test(infoHash)) {
+      return reply.status(400).send({ error: 'infoHash inválido.' });
+    }
+    const rawTrackers = request.query.tr;
+    const extraTrackers = Array.isArray(rawTrackers)
+      ? rawTrackers.filter((t): t is string => typeof t === 'string')
+      : typeof rawTrackers === 'string'
+        ? [rawTrackers]
+        : [];
+
+    try {
+      const subtitles = await getTorrentSubtitles(infoHash, fileIdx || 'auto', extraTrackers, PORT);
+      return { subtitles };
+    } catch {
+      return { subtitles: [] };
+    }
+  });
+
+  // 6f. Extrai sob demanda uma faixa de legenda embutida do MKV/MP4 para WebVTT via ffmpeg
+  app.get<{
+    Params: { infoHash: string; fileIdx: string; streamFile: string };
+    Querystring: { tr?: string | string[]; offset?: string };
+  }>('/api/torrent-subtitles/:infoHash/:fileIdx/:streamFile', async (request, reply) => {
+    const { infoHash, fileIdx, streamFile } = request.params;
+    if (!/^([a-f0-9]{40}|[a-z2-7]{32})$/i.test(infoHash)) {
+      return reply.status(400).type('text/plain; charset=utf-8').send('infoHash inválido.');
+    }
+
+    const match = streamFile.match(/^(\d+)\.vtt$/i);
+    if (!match) {
+      return reply.status(400).type('text/plain; charset=utf-8').send('Índice de legenda inválido.');
+    }
+    const streamIdx = Number(match[1]);
+
+    const rawTrackers = request.query.tr;
+    const extraTrackers = Array.isArray(rawTrackers)
+      ? rawTrackers.filter((t): t is string => typeof t === 'string')
+      : typeof rawTrackers === 'string'
+        ? [rawTrackers]
+        : [];
+
+    const vtt = await extractTorrentSubtitleVtt(
+      infoHash,
+      fileIdx || 'auto',
+      streamIdx,
+      extraTrackers,
+      PORT
+    );
+    if (!vtt) {
+      return reply.status(404).type('text/plain; charset=utf-8').send('Legenda embutida indisponível.');
+    }
+
+    const offsetSec = request.query.offset ? Number(request.query.offset) : 0;
+    const outputVtt =
+      Number.isFinite(offsetSec) && offsetSec > 0 ? shiftVttByOffset(vtt, offsetSec) : vtt;
+
+    return reply
+      .header('Content-Type', 'text/vtt; charset=utf-8')
+      .header('Cache-Control', offsetSec > 0 ? 'no-cache' : 'public, max-age=3600')
+      .send(outputVtt);
+  });
+
   // 7. Dublagem Neural (msedge-tts com suporte a voiceName dinâmico + cache LRU em memória)
   app.get<{ Querystring: { text?: string; voice?: string; voiceName?: string } }>(
     '/api/tts',
@@ -495,6 +594,97 @@ async function start() {
       }
     }
   );
+
+  // 8. Gerenciador de Downloads e Biblioteca Offline
+  app.get('/api/downloads', async () => {
+    return {
+      downloads: listDownloads(),
+      downloadDir: getResolvedDownloadDir(),
+    };
+  });
+
+  app.post<{ Body: Partial<StartDownloadInput> }>('/api/downloads', async (request, reply) => {
+    const body = request.body ?? {};
+    const type = parseMediaType(body.mediaType);
+    const imdbId = typeof body.imdbId === 'string' ? body.imdbId.trim() : '';
+    const tmdbId = Number(body.tmdbId);
+    const title = typeof body.title === 'string' ? body.title.trim() : '';
+
+    if (!type || !imdbId || !Number.isFinite(tmdbId) || !title) {
+      return reply.status(400).send({
+        error: 'Metadados inválidos para iniciar o download.',
+      });
+    }
+
+    try {
+      const record = startDownload({
+        imdbId,
+        tmdbId,
+        mediaType: type,
+        title,
+        season: body.season,
+        episode: body.episode,
+        posterPath: body.posterPath ?? null,
+        backdropPath: body.backdropPath ?? null,
+        quality: body.quality,
+        infoHash: body.infoHash,
+        magnetUri: body.magnetUri,
+        fileIdx: body.fileIdx ?? 'auto',
+      });
+      return reply.status(201).send({ download: record });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      return reply.status(400).send({ error: msg });
+    }
+  });
+
+  app.post<{ Params: { id: string } }>('/api/downloads/:id/pause', async (request, reply) => {
+    const updated = pauseDownload(request.params.id);
+    if (!updated) return reply.status(404).send({ error: 'Download não encontrado.' });
+    return { download: updated };
+  });
+
+  app.post<{ Params: { id: string } }>('/api/downloads/:id/resume', async (request, reply) => {
+    const updated = resumeDownload(request.params.id);
+    if (!updated) return reply.status(404).send({ error: 'Download não encontrado.' });
+    return { download: updated };
+  });
+
+  app.delete<{ Params: { id: string }; Querystring: { deleteFiles?: string } }>(
+    '/api/downloads/:id',
+    async (request, reply) => {
+      const deleteFiles =
+        request.query.deleteFiles === 'true' || request.query.deleteFiles === '1';
+      const ok = deleteDownload(request.params.id, deleteFiles);
+      if (!ok) return reply.status(404).send({ error: 'Download não encontrado.' });
+      return { ok: true };
+    }
+  );
+
+  app.get<{ Params: { id: string }; Querystring: { start?: string; transcode?: string } }>(
+    '/api/downloads/:id/stream',
+    async (request, reply) => {
+      const startSec = request.query.start ? Number(request.query.start) : undefined;
+      const forceTranscode =
+        request.query.transcode === '1' || request.query.transcode === 'true';
+      return streamOfflineDownload(request.params.id, request, reply, {
+        startSeconds: startSec && Number.isFinite(startSec) ? startSec : undefined,
+        forceTranscode,
+      });
+    }
+  );
+
+  app.get<{ Params: { id: string }; Querystring: { offset?: string } }>(
+    '/api/downloads/:id/subtitle.vtt',
+    async (request, reply) => {
+      const offsetSec = request.query.offset ? Number(request.query.offset) : 0;
+      return serveOfflineSubtitleVtt(request.params.id, reply, offsetSec);
+    }
+  );
+
+  app.get<{ Params: { id: string } }>('/api/downloads/:id/file', async (request, reply) => {
+    return serveOfflineFileAttachment(request.params.id, reply);
+  });
 
   try {
     await app.listen({ port: PORT, host: HOST });

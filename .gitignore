@@ -17,6 +17,7 @@ server/.env.*
 
 # Dados locais, cache e temporários do backend
 server/data/store.json
+server/data/downloads.json
 server/tmp/
 *.tmp
 *.local

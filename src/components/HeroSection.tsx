@@ -1,27 +1,45 @@
-import { useEffect, useState } from 'react';
-import { motion } from 'framer-motion';
+import { useEffect, useMemo, useState } from 'react';
+import { AnimatePresence, motion } from 'framer-motion';
 import { Info, Loader2, Play, Star } from 'lucide-react';
 import { getImageUrl, getMediaDetails, handleTmdbImageError } from '../services/tmdb';
 import type { MediaItem, PlayRequest } from '../types/media';
 
 interface HeroSectionProps {
-  item: MediaItem;
+  items: MediaItem[];
   onOpenDetails: (item: MediaItem) => void;
   onPlay: (item: MediaItem, req: PlayRequest) => void;
 }
 
-export function HeroSection({ item, onOpenDetails, onPlay }: HeroSectionProps) {
+const ROTATE_INTERVAL_MS = 7500;
+
+export function HeroSection({ items, onOpenDetails, onPlay }: HeroSectionProps) {
+  const featured = useMemo(() => items.slice(0, 5), [items]);
+  const [activeIndex, setActiveIndex] = useState(0);
+  const [paused, setPaused] = useState(false);
   const [resolvingPlay, setResolvingPlay] = useState(false);
   const [backdropFailed, setBackdropFailed] = useState(false);
+
+  const safeIndex = featured.length > 0 ? activeIndex % featured.length : 0;
+  const item = featured[safeIndex];
+
+  useEffect(() => {
+    setBackdropFailed(false);
+  }, [item?.id, item?.backdrop_path]);
+
+  useEffect(() => {
+    if (featured.length <= 1 || paused || resolvingPlay) return;
+    const timer = window.setInterval(() => {
+      setActiveIndex((prev) => (prev + 1) % featured.length);
+    }, ROTATE_INTERVAL_MS);
+    return () => window.clearInterval(timer);
+  }, [featured.length, paused, resolvingPlay]);
+
+  if (!item) return null;
 
   const title = item.title || item.name || 'Sem título';
   const year = (item.release_date || item.first_air_date || '').slice(0, 4);
   const score = item.vote_average ? item.vote_average.toFixed(1) : null;
-  const backdropUrl = getImageUrl(item.backdrop_path, 'original');
-
-  useEffect(() => {
-    setBackdropFailed(false);
-  }, [item.id, item.backdrop_path]);
+  const backdropUrl = getImageUrl(item.backdrop_path, 'w1280');
 
   const handleQuickPlay = async () => {
     if (resolvingPlay) return;
@@ -47,22 +65,29 @@ export function HeroSection({ item, onOpenDetails, onPlay }: HeroSectionProps) {
   };
 
   return (
-    <section className="relative min-h-[66vh] w-full overflow-hidden sm:min-h-[74vh] lg:min-h-[78vh]">
-      {/* Backdrop full-bleed */}
-      {backdropUrl && !backdropFailed && (
-        <motion.img
-          key={item.id}
-          initial={{ opacity: 0, scale: 1.04 }}
-          animate={{ opacity: 1, scale: 1 }}
-          transition={{ duration: 0.9, ease: [0.22, 1, 0.36, 1] }}
-          src={backdropUrl}
-          alt={title}
-          onError={(e) =>
-            handleTmdbImageError(e, item.backdrop_path, 'original', () => setBackdropFailed(true))
-          }
-          className="absolute inset-0 h-full w-full object-cover object-center"
-        />
-      )}
+    <section
+      onMouseEnter={() => setPaused(true)}
+      onMouseLeave={() => setPaused(false)}
+      className="relative min-h-[66vh] w-full overflow-hidden sm:min-h-[74vh] lg:min-h-[78vh]"
+    >
+      {/* Backdrop full-bleed com crossfade suave */}
+      <AnimatePresence mode="sync">
+        {backdropUrl && !backdropFailed && (
+          <motion.img
+            key={`${item.media_type}-${item.id}`}
+            initial={{ opacity: 0, scale: 1.035 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.9, ease: [0.22, 1, 0.36, 1] }}
+            src={backdropUrl}
+            alt={title}
+            onError={(e) =>
+              handleTmdbImageError(e, item.backdrop_path, 'w1280', () => setBackdropFailed(true))
+            }
+            className="absolute inset-0 h-full w-full object-cover object-center"
+          />
+        )}
+      </AnimatePresence>
 
       {/* Gradientes cinematográficos mesclando ao fundo (Escuro Cinema ou Claro Editorial) */}
       <div
@@ -82,73 +107,110 @@ export function HeroSection({ item, onOpenDetails, onPlay }: HeroSectionProps) {
 
       {/* Conteúdo editorial */}
       <div className="relative z-10 flex min-h-[66vh] flex-col justify-end px-5 pb-12 pt-24 sm:min-h-[74vh] sm:px-10 sm:pb-16 lg:min-h-[78vh] lg:px-14">
-        <motion.div
-          key={`content-${item.id}`}
-          initial={{ opacity: 0, y: 18 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.55, ease: [0.22, 1, 0.36, 1] }}
-          className="max-w-2xl"
-        >
-          {/* Metadados */}
-          <div className="mb-3.5 flex flex-wrap items-center gap-3 text-xs font-medium text-[var(--ph-text-muted)]">
-            <span className="uppercase tracking-[0.16em] text-[var(--ph-text)] opacity-85">
-              {item.media_type === 'tv' ? 'Série em destaque' : 'Filme em destaque'}
-            </span>
-            {year && (
-              <>
-                <span className="opacity-35">·</span>
-                <span className="tabular-nums">{year}</span>
-              </>
-            )}
-            {score && (
-              <>
-                <span className="opacity-35">·</span>
-                <span className="inline-flex items-center gap-1 text-[var(--ph-text)] tabular-nums">
-                  <Star className="h-3.5 w-3.5 fill-[#E5A93C] text-[#E5A93C]" />
-                  {score}
+        <div className="flex flex-col gap-6 sm:flex-row sm:items-end sm:justify-between">
+          <AnimatePresence mode="wait">
+            <motion.div
+              key={`content-${item.media_type}-${item.id}`}
+              initial={{ opacity: 0, y: 14 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -8 }}
+              transition={{ duration: 0.45, ease: [0.22, 1, 0.36, 1] }}
+              className="max-w-2xl"
+            >
+              {/* Metadados */}
+              <div className="mb-3.5 flex flex-wrap items-center gap-3 text-xs font-medium text-[var(--ph-text-muted)]">
+                <span className="uppercase tracking-[0.16em] text-[var(--ph-text)] opacity-85">
+                  {item.media_type === 'tv' ? 'Série em destaque' : 'Filme em destaque'}
                 </span>
-              </>
-            )}
-          </div>
+                {year && (
+                  <>
+                    <span className="opacity-35">·</span>
+                    <span className="tabular-nums">{year}</span>
+                  </>
+                )}
+                {score && (
+                  <>
+                    <span className="opacity-35">·</span>
+                    <span className="inline-flex items-center gap-1 text-[var(--ph-text)] tabular-nums">
+                      <Star className="h-3.5 w-3.5 fill-[#E5A93C] text-[#E5A93C]" />
+                      {score}
+                    </span>
+                  </>
+                )}
+              </div>
 
-          {/* Título */}
-          <h1 className="text-4xl font-semibold tracking-tight text-[var(--ph-text)] sm:text-5xl lg:text-6xl">
-            {title}
-          </h1>
+              {/* Título */}
+              <h1 className="text-4xl font-semibold tracking-tight text-[var(--ph-text)] sm:text-5xl lg:text-6xl">
+                {title}
+              </h1>
 
-          {/* Sinopse curta */}
-          {item.overview && (
-            <p className="mt-4 line-clamp-3 max-w-xl text-sm leading-relaxed text-[var(--ph-text-muted)] sm:text-[15px]">
-              {item.overview}
-            </p>
-          )}
-
-          {/* Ações */}
-          <div className="mt-7 flex flex-wrap items-center gap-3">
-            <button
-              type="button"
-              onClick={handleQuickPlay}
-              disabled={resolvingPlay}
-              className="inline-flex h-11 items-center gap-2.5 rounded-xl bg-[var(--ph-btn-primary-bg)] px-6 text-sm font-semibold text-[var(--ph-btn-primary-fg)] transition-colors hover:bg-[var(--ph-btn-primary-hover)] active:scale-[0.98] disabled:cursor-wait disabled:opacity-75"
-            >
-              {resolvingPlay ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : (
-                <Play className="h-4 w-4 fill-current" />
+              {/* Sinopse curta */}
+              {item.overview && (
+                <p className="mt-4 line-clamp-3 max-w-xl text-sm leading-relaxed text-[var(--ph-text-muted)] sm:text-[15px]">
+                  {item.overview}
+                </p>
               )}
-              <span>{resolvingPlay ? 'Preparando...' : 'Assistir Agora'}</span>
-            </button>
 
-            <button
-              type="button"
-              onClick={() => onOpenDetails(item)}
-              className="inline-flex h-11 items-center gap-2 rounded-xl border border-[var(--ph-border)] bg-[var(--ph-btn-secondary-bg)] px-5 text-sm font-medium text-[var(--ph-text)] backdrop-blur-md transition-colors hover:bg-[var(--ph-btn-secondary-hover)] active:scale-[0.98]"
+              {/* Ações */}
+              <div className="mt-7 flex flex-wrap items-center gap-3">
+                <button
+                  type="button"
+                  onClick={handleQuickPlay}
+                  disabled={resolvingPlay}
+                  className="inline-flex h-11 items-center gap-2.5 rounded-xl bg-[var(--ph-btn-primary-bg)] px-6 text-sm font-semibold text-[var(--ph-btn-primary-fg)] transition-colors hover:bg-[var(--ph-btn-primary-hover)] active:scale-[0.98] disabled:cursor-wait disabled:opacity-75"
+                >
+                  {resolvingPlay ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Play className="h-4 w-4 fill-current" />
+                  )}
+                  <span>{resolvingPlay ? 'Preparando...' : 'Assistir Agora'}</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => onOpenDetails(item)}
+                  className="inline-flex h-11 items-center gap-2 rounded-xl border border-[var(--ph-border)] bg-[var(--ph-btn-secondary-bg)] px-5 text-sm font-medium text-[var(--ph-text)] backdrop-blur-md transition-colors hover:bg-[var(--ph-btn-secondary-hover)] active:scale-[0.98]"
+                >
+                  <Info className="h-4 w-4" />
+                  <span>Mais Detalhes</span>
+                </button>
+              </div>
+            </motion.div>
+          </AnimatePresence>
+
+          {/* Barras indicadoras minimalistas do Hero Rotativo */}
+          {featured.length > 1 && (
+            <div
+              className="flex items-center gap-2 self-start sm:self-end"
+              role="tablist"
+              aria-label="Destaques em rotação"
             >
-              <Info className="h-4 w-4" />
-              <span>Mais Detalhes</span>
-            </button>
-          </div>
-        </motion.div>
+              {featured.map((feat, idx) => {
+                const isActive = idx === safeIndex;
+                return (
+                  <button
+                    key={`${feat.media_type}-${feat.id}`}
+                    type="button"
+                    role="tab"
+                    aria-selected={isActive}
+                    aria-label={`Destaque ${idx + 1}: ${feat.title || feat.name || ''}`}
+                    onClick={() => setActiveIndex(idx)}
+                    className="group py-2 focus:outline-none"
+                  >
+                    <span
+                      className={`block h-1 rounded-full transition-all duration-300 ${
+                        isActive
+                          ? 'w-9 bg-[var(--ph-text)]'
+                          : 'w-4 bg-[var(--ph-text-muted)] opacity-35 group-hover:opacity-70'
+                      }`}
+                    />
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
       </div>
     </section>
   );

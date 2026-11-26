@@ -40,6 +40,16 @@ export interface TorrentMetaResponse {
   fileName: string;
 }
 
+export interface EmbeddedSubtitleTrack {
+  streamIdx: number;
+  codec: string;
+  language: string;
+  title: string;
+  langTag: 'PT-BR' | 'PT-PT' | 'EN' | 'OTHER';
+  label: string;
+  url: string;
+}
+
 export interface TorrentStreamOptions {
   forceTranscode?: boolean;
   startSeconds?: number;
@@ -96,6 +106,18 @@ interface ActiveEngineState {
 let activeState: ActiveEngineState | null = null;
 let lastStreamError: LastStreamError | null = null;
 const torrentMetaCache = new Map<string, TorrentMetaResponse>();
+const torrentSubListCache = new Map<string, EmbeddedSubtitleTrack[]>();
+const torrentSubVttCache = new Map<string, string>();
+
+const TEXT_SUBTITLE_CODECS = new Set([
+  'subrip',
+  'srt',
+  'ass',
+  'ssa',
+  'webvtt',
+  'mov_text',
+  'text',
+]);
 
 let ffmpegChecked = false;
 let ffmpegAvailable = false;
@@ -844,4 +866,230 @@ export async function handleTorrentStream(
     }
     return reply.status(502).send({ error: 'Falha ao reproduzir torrent P2P.' });
   }
+}
+
+function classifyEmbeddedSubLang(
+  rawLang: string,
+  rawTitle: string
+): 'PT-BR' | 'PT-PT' | 'EN' | 'OTHER' {
+  const code = rawLang.toLowerCase().trim();
+  const title = rawTitle.toLowerCase();
+  const combined = `${code} ${title}`;
+
+  if (
+    code === 'pob' ||
+    code === 'pb' ||
+    code === 'pt-br' ||
+    /\b(pob|pt[-_]?br|brazil|brazilian|brasil|brasileiro|brasileira)\b/i.test(combined)
+  ) {
+    return 'PT-BR';
+  }
+  if (
+    code === 'por' ||
+    code === 'pt' ||
+    code === 'pt-pt' ||
+    /\b(pt[-_]?pt|portugal|portuguese|portugu[eê]s)\b/i.test(combined)
+  ) {
+    return 'PT-PT';
+  }
+  if (code === 'eng' || code === 'en' || /\benglish\b/i.test(combined)) {
+    return 'EN';
+  }
+  return 'OTHER';
+}
+
+export async function getTorrentSubtitles(
+  infoHash: string,
+  fileIdxParam: string,
+  extraTrackers: string[],
+  localPort = 3001
+): Promise<EmbeddedSubtitleTrack[]> {
+  const normalizedHash = infoHash.toLowerCase();
+  const safeFileIdx = fileIdxParam || 'auto';
+  const cacheKey = `${normalizedHash}:${safeFileIdx}`;
+
+  const cached = torrentSubListCache.get(cacheKey);
+  if (cached) return cached;
+
+  const caps = checkFfmpegCapabilities();
+  if (!caps.available) return [];
+
+  // Garante que a engine está pronta antes do ffprobe ler /api/torrent-raw
+  await getOrCreateEngine(normalizedHash, extraTrackers);
+
+  const qs = new URLSearchParams();
+  for (const tr of extraTrackers) qs.append('tr', tr);
+  const querySuffix = qs.toString() ? `?${qs.toString()}` : '';
+  const rawUrl = `http://127.0.0.1:${localPort}/api/torrent-raw/${normalizedHash}/${encodeURIComponent(
+    safeFileIdx
+  )}${querySuffix}`;
+
+  const tracks = await new Promise<EmbeddedSubtitleTrack[]>((resolve) => {
+    const proc = spawn(
+      'ffprobe',
+      [
+        '-v',
+        'quiet',
+        '-print_format',
+        'json',
+        '-show_streams',
+        '-select_streams',
+        's',
+        rawUrl,
+      ],
+      { stdio: ['ignore', 'pipe', 'pipe'] }
+    );
+
+    let stdout = '';
+    const timer = setTimeout(() => {
+      try {
+        proc.kill('SIGKILL');
+      } catch {
+        // ignora
+      }
+      resolve([]);
+    }, 15000);
+
+    proc.stdout.on('data', (chunk: Buffer) => {
+      stdout += chunk.toString('utf-8');
+    });
+
+    proc.on('error', () => {
+      clearTimeout(timer);
+      resolve([]);
+    });
+
+    proc.on('close', (code) => {
+      clearTimeout(timer);
+      if (code !== 0 || !stdout.trim()) {
+        resolve([]);
+        return;
+      }
+
+      try {
+        const parsed = JSON.parse(stdout) as {
+          streams?: {
+            codec_name?: string;
+            tags?: { language?: string; title?: string };
+          }[];
+        };
+        const streams = Array.isArray(parsed.streams) ? parsed.streams : [];
+        const result: EmbeddedSubtitleTrack[] = [];
+
+        streams.forEach((stream, subIdx) => {
+          const codec = (stream.codec_name || '').toLowerCase();
+          if (!TEXT_SUBTITLE_CODECS.has(codec)) return;
+
+          const language = (stream.tags?.language || 'und').trim();
+          const title = (stream.tags?.title || '').trim();
+          const langTag = classifyEmbeddedSubLang(language, title);
+          const label = title
+            ? `${title} (${langTag === 'OTHER' ? language.toUpperCase() : langTag})`
+            : `Faixa #${subIdx + 1} (${langTag === 'OTHER' ? language.toUpperCase() : langTag})`;
+
+          result.push({
+            streamIdx: subIdx,
+            codec,
+            language,
+            title: title || `MKV Stream #${subIdx + 1}`,
+            langTag,
+            label,
+            url: `/api/torrent-subtitles/${normalizedHash}/${encodeURIComponent(
+              safeFileIdx
+            )}/${subIdx}.vtt`,
+          });
+        });
+
+        resolve(result);
+      } catch {
+        resolve([]);
+      }
+    });
+  });
+
+  if (tracks.length > 0) {
+    torrentSubListCache.set(cacheKey, tracks);
+  }
+  return tracks;
+}
+
+export async function extractTorrentSubtitleVtt(
+  infoHash: string,
+  fileIdxParam: string,
+  streamIdx: number,
+  extraTrackers: string[],
+  localPort = 3001
+): Promise<string | null> {
+  const normalizedHash = infoHash.toLowerCase();
+  const safeFileIdx = fileIdxParam || 'auto';
+  const cacheKey = `${normalizedHash}:${safeFileIdx}:${streamIdx}`;
+
+  const cached = torrentSubVttCache.get(cacheKey);
+  if (cached) return cached;
+
+  const caps = checkFfmpegCapabilities();
+  if (!caps.available) return null;
+
+  await getOrCreateEngine(normalizedHash, extraTrackers);
+
+  const qs = new URLSearchParams();
+  for (const tr of extraTrackers) qs.append('tr', tr);
+  const querySuffix = qs.toString() ? `?${qs.toString()}` : '';
+  const rawUrl = `http://127.0.0.1:${localPort}/api/torrent-raw/${normalizedHash}/${encodeURIComponent(
+    safeFileIdx
+  )}${querySuffix}`;
+
+  const vtt = await new Promise<string | null>((resolve) => {
+    const proc = spawn(
+      'ffmpeg',
+      [
+        '-nostdin',
+        '-hide_banner',
+        '-loglevel',
+        'error',
+        '-i',
+        rawUrl,
+        '-map',
+        `0:s:${streamIdx}`,
+        '-f',
+        'webvtt',
+        'pipe:1',
+      ],
+      { stdio: ['ignore', 'pipe', 'pipe'] }
+    );
+
+    const chunks: Buffer[] = [];
+    const timer = setTimeout(() => {
+      try {
+        proc.kill('SIGKILL');
+      } catch {
+        // ignora
+      }
+      resolve(null);
+    }, 25000);
+
+    proc.stdout.on('data', (chunk: Buffer) => {
+      chunks.push(chunk);
+    });
+
+    proc.on('error', () => {
+      clearTimeout(timer);
+      resolve(null);
+    });
+
+    proc.on('close', (code) => {
+      clearTimeout(timer);
+      if (code !== 0 || chunks.length === 0) {
+        resolve(null);
+        return;
+      }
+      const output = Buffer.concat(chunks).toString('utf-8');
+      resolve(output.includes('WEBVTT') ? output : `WEBVTT\n\n${output}`);
+    });
+  });
+
+  if (vtt) {
+    torrentSubVttCache.set(cacheKey, vtt);
+  }
+  return vtt;
 }

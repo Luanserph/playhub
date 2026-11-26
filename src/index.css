@@ -101,6 +101,18 @@ video.playhub-video::cue {
   text-shadow: 0 1px 4px rgba(0, 0, 0, 0.85);
 }
 
+video.playhub-video.sub-sm::cue {
+  font-size: clamp(0.82rem, 1.6vw, 1.1rem);
+}
+
+video.playhub-video.sub-md::cue {
+  font-size: clamp(1rem, 2.2vw, 1.45rem);
+}
+
+video.playhub-video.sub-lg::cue {
+  font-size: clamp(1.25rem, 2.9vw, 1.95rem);
+}
+
 video.playhub-video::-webkit-media-text-track-container {
   transition: transform 0.22s ease;
   transform: translateY(-20px);

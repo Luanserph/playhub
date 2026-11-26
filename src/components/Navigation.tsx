@@ -1,20 +1,21 @@
 import { motion } from 'framer-motion';
 import {
   Bookmark,
+  Download,
   Film,
   HelpCircle,
   Home,
   PanelLeftClose,
   PanelLeftOpen,
-  Play,
   Search,
   Settings,
   Star,
   Tv,
 } from 'lucide-react';
 import { useIsDesktop } from '../hooks/useIsDesktop';
+import { PlayHubLogo } from './PlayHubLogo';
 
-export type NavTab = 'home' | 'movie' | 'tv' | 'watchlist' | 'rated';
+export type NavTab = 'home' | 'movie' | 'tv' | 'watchlist' | 'rated' | 'downloads';
 
 interface NavigationProps {
   activeTab: NavTab;
@@ -26,6 +27,7 @@ interface NavigationProps {
   onToggleCollapse: () => void;
   watchlistCount: number;
   ratedCount: number;
+  activeDownloadsCount?: number;
 }
 
 const NAV_ITEMS: { id: NavTab; label: string; mobileLabel: string; icon: typeof Home }[] = [
@@ -34,6 +36,7 @@ const NAV_ITEMS: { id: NavTab; label: string; mobileLabel: string; icon: typeof 
   { id: 'tv', label: 'Séries', mobileLabel: 'Séries', icon: Tv },
   { id: 'watchlist', label: 'Minha Lista', mobileLabel: 'Lista', icon: Bookmark },
   { id: 'rated', label: 'Avaliados', mobileLabel: 'Avaliados', icon: Star },
+  { id: 'downloads', label: 'Downloads', mobileLabel: 'Offline', icon: Download },
 ];
 
 const NAV_SPRING = {
@@ -52,12 +55,14 @@ export function Navigation({
   onToggleCollapse,
   watchlistCount,
   ratedCount,
+  activeDownloadsCount = 0,
 }: NavigationProps) {
   const isDesktop = useIsDesktop(768);
 
   const getCount = (id: NavTab): number => {
     if (id === 'watchlist') return watchlistCount;
     if (id === 'rated') return ratedCount;
+    if (id === 'downloads') return activeDownloadsCount;
     return 0;
   };
 
@@ -119,21 +124,9 @@ export function Navigation({
         <button
           type="button"
           onClick={() => onSelectTab('home')}
-          className="flex items-center gap-2.5 overflow-hidden text-left focus:outline-none"
+          className="flex items-center overflow-hidden text-left focus:outline-none"
         >
-          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[var(--ph-btn-primary-bg)] text-[var(--ph-btn-primary-fg)]">
-            <Play className="h-3.5 w-3.5 translate-x-[0.5px] fill-current" />
-          </span>
-          {!collapsed && (
-            <motion.span
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              className="whitespace-nowrap text-[15px] font-semibold tracking-tight text-[var(--ph-text)]"
-            >
-              PlayHub
-            </motion.span>
-          )}
+          <PlayHubLogo size={32} showWordmark={!collapsed} />
         </button>
 
         {!collapsed && (

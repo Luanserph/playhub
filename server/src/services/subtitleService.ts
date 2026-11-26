@@ -1,6 +1,15 @@
 import type { StreamMediaType } from './streamResolver';
 
 export type SubtitleStatus = 'native-pt' | 'native' | 'auto-translated' | 'none';
+export type SubtitleLangTag = 'PT-BR' | 'PT-PT' | 'EN' | 'IA PT-BR';
+
+export interface SubtitleOptionItem {
+  id: string;
+  label: string;
+  langTag: SubtitleLangTag;
+  releaseName: string;
+  url: string;
+}
 
 export interface SubtitleCacheEntry {
   key: string;
@@ -8,6 +17,7 @@ export interface SubtitleCacheEntry {
   language: string;
   vtt: string | null;
   sourceLang?: string;
+  options: SubtitleOptionItem[];
   createdAt: number;
 }
 
@@ -26,6 +36,16 @@ interface OpenSubtitlesItem {
   id?: string;
   url?: string;
   lang?: string;
+  label?: string;
+  name?: string;
+  SubFileName?: string;
+  source?: 'OpenSubtitles' | 'Wyzie';
+}
+
+interface RegisteredSubtitleTrack {
+  sourceUrl?: string;
+  vtt?: string;
+  translateTarget?: { lang: string; iso2: string };
 }
 
 interface VttCue {
@@ -34,11 +54,75 @@ interface VttCue {
 }
 
 const OPENSUBTITLES_BASE = 'https://opensubtitles-v3.strem.io/subtitles';
+const WYZIE_SUBS_BASE = 'https://sub.wyzie.ru/search';
 const FETCH_TIMEOUT_MS = 8000;
+const WYZIE_TIMEOUT_MS = 5000;
 const TRANSLATE_BATCH_SIZE = 40;
 const PUBLIC_TRANSLATE_SEPARATOR = '\n⟪§⟫\n';
 
 const subtitleCache = new Map<string, SubtitleCacheEntry>();
+const subtitleTrackRegistry = new Map<string, RegisteredSubtitleTrack>();
+
+const BRAZIL_REGEX = /\b(pob|pt[-_]?br|brazil|brazilian|brasil|brasileiro|brasileira)\b/i;
+const PORTUGAL_REGEX = /\b(pt[-_]?pt|portugal|european\s*portuguese)\b/i;
+
+function classifySubtitleTrack(
+  track: OpenSubtitlesItem
+): 'PT-BR' | 'PT-PT' | 'EN' | 'OTHER' {
+  const code = (track.lang ?? '').toLowerCase().trim();
+  const meta = `${track.label ?? ''} ${track.name ?? ''} ${track.SubFileName ?? ''} ${track.id ?? ''} ${track.url ?? ''}`.toLowerCase();
+
+  // Separação rigorosa: PT-BR apenas para código 'pob' ou indicador explícito brasileiro
+  if (code === 'pob' || code === 'pt-br' || code === 'ptbr' || code === 'pb') {
+    return 'PT-BR';
+  }
+  if ((code === 'por' || code === 'pt') && BRAZIL_REGEX.test(meta) && !PORTUGAL_REGEX.test(meta)) {
+    return 'PT-BR';
+  }
+  if (code === 'por' || code === 'pt' || code === 'pt-pt' || PORTUGAL_REGEX.test(meta)) {
+    return 'PT-PT';
+  }
+  if (code === 'eng' || code === 'en' || code === 'en-us' || code === 'en-gb') {
+    return 'EN';
+  }
+  return 'OTHER';
+}
+
+function extractReleaseName(track: OpenSubtitlesItem, fallbackIdx: number): string {
+  const explicit = (track.SubFileName || track.name || track.label || '').trim();
+  if (explicit && !/^(pob|por|eng|pt|en)$/i.test(explicit)) {
+    return explicit;
+  }
+  if (track.url) {
+    try {
+      const parsed = new URL(track.url);
+      const lastSeg = decodeURIComponent(parsed.pathname.split('/').pop() || '');
+      if (lastSeg && !/^\d+\.(srt|vtt)$/i.test(lastSeg)) {
+        return lastSeg.replace(/\.(srt|vtt|ass)$/i, '');
+      }
+    } catch {
+      // ignora URL inválida
+    }
+  }
+  return `OpenSubtitles #${fallbackIdx + 1}`;
+}
+
+export async function getVttByTrackId(trackId: string): Promise<string | null> {
+  const reg = subtitleTrackRegistry.get(trackId);
+  if (!reg) return null;
+  if (reg.vtt) return reg.vtt;
+  if (!reg.sourceUrl) return null;
+
+  const raw = await downloadSubtitleText(reg.sourceUrl);
+  if (!raw) return null;
+
+  let vtt = srtToVtt(raw);
+  if (reg.translateTarget) {
+    vtt = await translateVtt(vtt, reg.translateTarget.lang, reg.translateTarget.iso2);
+  }
+  reg.vtt = vtt;
+  return vtt;
+}
 
 function inferDefaultsForLang(lang?: string): {
   lang: string;
@@ -422,7 +506,71 @@ async function fetchSubtitleTrackList(
     const res = await fetchWithTimeout(url, FETCH_TIMEOUT_MS);
     if (!res.ok) return [];
     const data = (await res.json()) as { subtitles?: unknown };
-    return Array.isArray(data.subtitles) ? (data.subtitles as OpenSubtitlesItem[]) : [];
+    return Array.isArray(data.subtitles)
+      ? (data.subtitles as OpenSubtitlesItem[]).map((item) => ({
+          ...item,
+          source: 'OpenSubtitles' as const,
+        }))
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+async function fetchWyzieSubtitleTracks(
+  type: StreamMediaType,
+  imdbId: string,
+  season?: number,
+  episode?: number
+): Promise<OpenSubtitlesItem[]> {
+  const url = new URL(WYZIE_SUBS_BASE);
+  url.searchParams.set('id', imdbId);
+  url.searchParams.set('language', 'pt,pb,en');
+  if (type === 'tv') {
+    url.searchParams.set('season', String(season ?? 1));
+    url.searchParams.set('episode', String(episode ?? 1));
+  }
+
+  try {
+    const res = await fetchWithTimeout(url.toString(), WYZIE_TIMEOUT_MS);
+    if (!res.ok) return [];
+    const raw = (await res.json()) as unknown;
+    const list = Array.isArray(raw) ? raw : [];
+    const items: OpenSubtitlesItem[] = [];
+
+    for (const entry of list) {
+      if (!entry || typeof entry !== 'object') continue;
+      const rec = entry as Record<string, unknown>;
+      const subUrl = typeof rec.url === 'string' ? rec.url.trim() : '';
+      if (!subUrl) continue;
+
+      const langCode =
+        typeof rec.language === 'string'
+          ? rec.language
+          : typeof rec.lang === 'string'
+            ? rec.lang
+            : '';
+      const display = typeof rec.display === 'string' ? rec.display : '';
+      const release =
+        typeof rec.release === 'string'
+          ? rec.release
+          : typeof rec.fileName === 'string'
+            ? rec.fileName
+            : typeof rec.media === 'string'
+              ? rec.media
+              : '';
+
+      items.push({
+        id: typeof rec.id === 'string' ? rec.id : undefined,
+        url: subUrl,
+        lang: langCode,
+        label: display,
+        SubFileName: release || display || undefined,
+        source: 'Wyzie',
+      });
+    }
+
+    return items;
   } catch {
     return [];
   }
@@ -444,6 +592,7 @@ export async function resolveSubtitle(
   const defaults = inferDefaultsForLang(input.lang);
   const lang = input.lang?.trim() || defaults.lang;
   const iso2 = (input.iso2?.trim() || defaults.iso2).toLowerCase();
+  const isPtBrTarget = lang.toLowerCase() === 'pt-br';
   const openSubCodes =
     input.openSubCodes && input.openSubCodes.length > 0
       ? input.openSubCodes.map((c) => c.toLowerCase())
@@ -457,69 +606,168 @@ export async function resolveSubtitle(
     return cached;
   }
 
-  const tracks = await fetchSubtitleTrackList(type, imdbId, season, episode);
+  // Consulta paralela: OpenSubtitles + Wyzie Subs, mesclando sem duplicatas
+  const [openSubTracks, wyzieTracks] = await Promise.all([
+    fetchSubtitleTrackList(type, imdbId, season, episode),
+    fetchWyzieSubtitleTracks(type, imdbId, season, episode),
+  ]);
 
-  // 1. Procura legenda nativa na ordem de prioridade de openSubCodes (mais iso2/lang)
-  const acceptedCodes = [...openSubCodes, lang.toLowerCase(), iso2];
-  let nativeTrack: OpenSubtitlesItem | undefined;
-
-  for (const code of acceptedCodes) {
-    nativeTrack = tracks.find(
-      (t) => Boolean(t.url) && (t.lang ?? '').toLowerCase() === code
-    );
-    if (nativeTrack) break;
-  }
-
-  if (nativeTrack?.url) {
-    const rawSrt = await downloadSubtitleText(nativeTrack.url);
-    if (rawSrt) {
-      const vtt = srtToVtt(rawSrt);
-      const entry: SubtitleCacheEntry = {
-        key: cacheKey,
-        status: iso2 === 'pt' ? 'native-pt' : 'native',
-        language: lang,
-        vtt,
-        sourceLang: nativeTrack.lang ?? openSubCodes[0],
-        createdAt: Date.now(),
-      };
-      subtitleCache.set(cacheKey, entry);
-      return entry;
+  const dedupMap = new Map<string, OpenSubtitlesItem>();
+  for (const t of [...openSubTracks, ...wyzieTracks]) {
+    if (!t.url) continue;
+    if (!dedupMap.has(t.url)) {
+      dedupMap.set(t.url, t);
     }
   }
+  const tracks = Array.from(dedupMap.values());
 
-  // 2. Se não encontrou nativa e autoTranslate está ativo (e idioma alvo não for inglês), traduz de inglês
-  if (autoTranslate && iso2 !== 'en') {
-    const engTrack = tracks.find((t) => {
-      const l = (t.lang ?? '').toLowerCase();
-      return Boolean(t.url) && (l === 'eng' || l === 'en');
+  // Classificação rigorosa de todas as faixas disponíveis
+  const ptBrTracks: OpenSubtitlesItem[] = [];
+  const ptPtTracks: OpenSubtitlesItem[] = [];
+  const enTracks: OpenSubtitlesItem[] = [];
+
+  for (const track of tracks) {
+    const tag = classifySubtitleTrack(track);
+    if (tag === 'PT-BR') ptBrTracks.push(track);
+    else if (tag === 'PT-PT') ptPtTracks.push(track);
+    else if (tag === 'EN') enTracks.push(track);
+  }
+
+  // Constrói lista ranqueada de até 12 opções selecionáveis
+  const baseTrackKey = `${imdbId}-${season ?? 0}-${episode ?? 0}`;
+  const seenUrls = new Set<string>();
+  const options: SubtitleOptionItem[] = [];
+
+  const registerOption = (
+    track: OpenSubtitlesItem,
+    langTag: SubtitleLangTag,
+    idx: number,
+    preloadedVtt?: string
+  ): SubtitleOptionItem | null => {
+    if (!track.url || seenUrls.has(track.url) || options.length >= 12) return null;
+    seenUrls.add(track.url);
+    const id = `${baseTrackKey}-${langTag.toLowerCase().replace(/\s+/g, '-')}-${idx}`;
+    const releaseName = extractReleaseName(track, idx);
+    const sourceLabel = track.source === 'Wyzie' ? 'Wyzie' : 'OpenSubtitles';
+    subtitleTrackRegistry.set(id, {
+      sourceUrl: track.url,
+      ...(preloadedVtt ? { vtt: preloadedVtt } : {}),
     });
+    const labelMap: Record<SubtitleLangTag, string> = {
+      'PT-BR': `Português (Brasil) #${idx + 1}`,
+      'PT-PT': `Português (Portugal) #${idx + 1}`,
+      EN: `English #${idx + 1}`,
+      'IA PT-BR': 'Português (Brasil · IA)',
+    };
+    const item: SubtitleOptionItem = {
+      id,
+      label: labelMap[langTag],
+      langTag,
+      releaseName: `${sourceLabel} · ${releaseName}`,
+      url: `/api/subtitles/vtt?trackId=${encodeURIComponent(id)}`,
+    };
+    options.push(item);
+    return item;
+  };
 
-    if (engTrack?.url) {
-      const rawSrt = await downloadSubtitleText(engTrack.url);
+  // 1. Seleciona faixa principal respeitando estritamente PT-BR vs PT-PT
+  let primaryVtt: string | null = null;
+  let primaryStatus: SubtitleStatus = 'none';
+  let primarySourceLang: string | undefined;
+
+  if (isPtBrTarget) {
+    // Somente faixas PT-BR genuínas (pob / indicador Brasil) entram como nativas PT-BR
+    const primaryBrTrack = ptBrTracks[0];
+    if (primaryBrTrack?.url) {
+      const rawSrt = await downloadSubtitleText(primaryBrTrack.url);
       if (rawSrt) {
-        const baseVtt = srtToVtt(rawSrt);
-        const translatedVtt = await translateVtt(baseVtt, lang, iso2);
-        const entry: SubtitleCacheEntry = {
-          key: cacheKey,
-          status: 'auto-translated',
-          language: lang,
-          vtt: translatedVtt,
-          sourceLang: engTrack.lang ?? 'eng',
-          createdAt: Date.now(),
-        };
-        subtitleCache.set(cacheKey, entry);
-        return entry;
+        primaryVtt = srtToVtt(rawSrt);
+        primaryStatus = 'native-pt';
+        primarySourceLang = primaryBrTrack.lang ?? 'pob';
+      }
+    }
+  } else {
+    const acceptedCodes = [...openSubCodes, lang.toLowerCase(), iso2];
+    let nativeTrack: OpenSubtitlesItem | undefined;
+    for (const code of acceptedCodes) {
+      nativeTrack = tracks.find((t) => (t.lang ?? '').toLowerCase() === code);
+      if (nativeTrack) break;
+    }
+    if (nativeTrack?.url) {
+      const rawSrt = await downloadSubtitleText(nativeTrack.url);
+      if (rawSrt) {
+        primaryVtt = srtToVtt(rawSrt);
+        primaryStatus = iso2 === 'pt' ? 'native-pt' : 'native';
+        primarySourceLang = nativeTrack.lang ?? openSubCodes[0];
       }
     }
   }
 
-  const emptyEntry: SubtitleCacheEntry = {
+  // 2. Se não encontrou nativa PT-BR (mesmo que exista PT-PT ou EN) e autoTranslate está ativo, traduz para PT-BR
+  let translatedOptionVtt: string | null = null;
+  if (!primaryVtt && autoTranslate && iso2 !== 'en') {
+    const sourceForTranslation = enTracks[0] ?? ptPtTracks[0];
+    if (sourceForTranslation?.url) {
+      const rawSrt = await downloadSubtitleText(sourceForTranslation.url);
+      if (rawSrt) {
+        const baseVtt = srtToVtt(rawSrt);
+        translatedOptionVtt = await translateVtt(baseVtt, lang, iso2);
+        primaryVtt = translatedOptionVtt;
+        primaryStatus = 'auto-translated';
+        primarySourceLang = sourceForTranslation.lang ?? 'eng';
+      }
+    }
+  }
+
+  // Popula lista ranqueada (até 12 opções): PT-BR -> IA PT-BR -> PT-PT -> EN
+  ptBrTracks.slice(0, 5).forEach((t, idx) => {
+    registerOption(t, 'PT-BR', idx, idx === 0 && primaryStatus === 'native-pt' && primaryVtt ? primaryVtt : undefined);
+  });
+
+  if (translatedOptionVtt && options.length < 12) {
+    const aiId = `${baseTrackKey}-ia-pt-br`;
+    subtitleTrackRegistry.set(aiId, { vtt: translatedOptionVtt });
+    options.push({
+      id: aiId,
+      label: 'Português (Brasil · Tradução IA)',
+      langTag: 'IA PT-BR',
+      releaseName: 'Tradução automática para PT-BR',
+      url: `/api/subtitles/vtt?trackId=${encodeURIComponent(aiId)}`,
+    });
+  } else if (isPtBrTarget && autoTranslate && !translatedOptionVtt && enTracks[0]?.url && options.length < 12) {
+    // Oferece opção sob demanda de tradução IA para PT-BR
+    const aiId = `${baseTrackKey}-ia-pt-br`;
+    subtitleTrackRegistry.set(aiId, {
+      sourceUrl: enTracks[0].url,
+      translateTarget: { lang: 'pt-BR', iso2: 'pt' },
+    });
+    options.push({
+      id: aiId,
+      label: 'Português (Brasil · Tradução IA)',
+      langTag: 'IA PT-BR',
+      releaseName: `Auto-traduzir de ${extractReleaseName(enTracks[0], 0)}`,
+      url: `/api/subtitles/vtt?trackId=${encodeURIComponent(aiId)}`,
+    });
+  }
+
+  ptPtTracks.slice(0, 3).forEach((t, idx) => {
+    registerOption(t, 'PT-PT', idx);
+  });
+
+  enTracks.slice(0, 3).forEach((t, idx) => {
+    registerOption(t, 'EN', idx);
+  });
+
+  const entry: SubtitleCacheEntry = {
     key: cacheKey,
-    status: 'none',
+    status: primaryStatus,
     language: lang,
-    vtt: null,
+    vtt: primaryVtt,
+    ...(primarySourceLang ? { sourceLang: primarySourceLang } : {}),
+    options: options.slice(0, 12),
     createdAt: Date.now(),
   };
-  subtitleCache.set(cacheKey, emptyEntry);
-  return emptyEntry;
+
+  subtitleCache.set(cacheKey, entry);
+  return entry;
 }

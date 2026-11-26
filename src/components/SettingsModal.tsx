@@ -66,6 +66,8 @@ interface SettingsModalProps {
     key: K,
     value: SourcePreferences[K]
   ) => void;
+  resolvedDownloadDir?: string;
+  onChangeDownloadDir?: (dir: string) => void;
   onExportBackup: (options?: { includeTmdbKey?: boolean }) => void;
   onImportBackup: (rawJson: string) => Promise<{ ok: boolean; error?: string }>;
 }
@@ -102,6 +104,8 @@ export function SettingsModal({
   onChangeLanguage,
   onChangePlayback,
   onChangeSource,
+  resolvedDownloadDir = '',
+  onChangeDownloadDir,
   onExportBackup,
   onImportBackup,
 }: SettingsModalProps) {
@@ -545,6 +549,35 @@ export function SettingsModal({
                   </select>
                 </div>
               </section>
+
+              {/* Seção: Pasta de Downloads (Modo Offline) */}
+              {onChangeDownloadDir && (
+                <section>
+                  <div className="flex items-center gap-2">
+                    <Download className="h-3.5 w-3.5 text-[var(--ph-text-muted)]" />
+                    <h3 className="text-[11px] font-medium uppercase tracking-[0.14em] text-[var(--ph-text-muted)]">
+                      Pasta de Downloads
+                    </h3>
+                  </div>
+                  <p className="mt-1 text-xs text-[var(--ph-text-muted)]">
+                    Local onde vídeos e legendas PT-BR baixados são salvos no seu computador.
+                  </p>
+                  <div className="mt-3">
+                    <input
+                      type="text"
+                      value={preferences.downloadDir ?? ''}
+                      onChange={(e) => onChangeDownloadDir(e.target.value)}
+                      placeholder={resolvedDownloadDir || 'Padrão: ~/Downloads/PlayHub'}
+                      className="h-10 w-full rounded-xl border border-[var(--ph-border)] bg-[var(--ph-surface-2)] px-3.5 font-mono text-xs text-[var(--ph-text)] placeholder-[var(--ph-text-muted)] outline-none focus:border-[var(--ph-border-strong)]"
+                    />
+                    {resolvedDownloadDir && !preferences.downloadDir && (
+                      <p className="mt-1.5 truncate font-mono text-[11px] text-[var(--ph-text-muted)]">
+                        Ativo: {resolvedDownloadDir}
+                      </p>
+                    )}
+                  </div>
+                </section>
+              )}
 
               {/* Seção: Preferências de Reprodução */}
               <section>

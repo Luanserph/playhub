@@ -10,13 +10,13 @@ import {
   HardDrive,
   KeyRound,
   Loader2,
-  Play,
   Search,
   Server,
   Subtitles,
   X,
 } from 'lucide-react';
 import { getTmdbKeySource, validateTmdbKey } from '../services/tmdb';
+import { PlayHubLogo } from './PlayHubLogo';
 
 interface OnboardingGuideProps {
   open: boolean;
@@ -160,9 +160,7 @@ export function OnboardingGuide({
             {/* Cabeçalho */}
             <div className="flex items-center justify-between border-b border-[var(--ph-border)] px-6 py-4">
               <div className="flex items-center gap-2.5">
-                <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-[var(--ph-btn-primary-bg)] text-[var(--ph-btn-primary-fg)]">
-                  <Play className="h-3 w-3 translate-x-[0.5px] fill-current" />
-                </span>
+                <PlayHubLogo size={30} showWordmark={false} />
                 <div>
                   <p className="text-[13px] font-semibold tracking-tight text-[var(--ph-text)]">
                     Guia PlayHub
