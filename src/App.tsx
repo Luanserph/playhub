@@ -105,6 +105,18 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [attemptedRatedKeys, setAttemptedRatedKeys] = useState<Record<string, true>>({});
   const [error, setError] = useState<string | null>(null);
+  const [catalogReloadSeq, setCatalogReloadSeq] = useState(0);
+
+  const handleSaveTmdbKey = useCallback(
+    (key: string) => {
+      setTmdbApiKey(key);
+      if (key.trim()) {
+        setError(null);
+        setCatalogReloadSeq((seq) => seq + 1);
+      }
+    },
+    [setTmdbApiKey]
+  );
 
   const [selected, setSelected] = useState<MediaItem | null>(null);
   const [activeSession, setActiveSession] = useState<ActivePlayerSession | null>(null);
@@ -136,6 +148,8 @@ export default function App() {
   useEffect(() => {
     let active = true;
     setTmdbLanguage(languageConfig.tmdbLang);
+    setError(null);
+    setLoading(true);
 
     Promise.all([
       getTrending('all'),
@@ -178,7 +192,7 @@ export default function App() {
     return () => {
       active = false;
     };
-  }, [languageConfig.tmdbLang, tmdbApiKey]);
+  }, [languageConfig.tmdbLang, tmdbApiKey, catalogReloadSeq]);
 
   const addonUrls = useMemo(() => addons.map((a) => a.url), [addons]);
 
@@ -708,7 +722,7 @@ export default function App() {
         open={settingsOpen}
         onClose={() => setSettingsOpen(false)}
         tmdbApiKey={tmdbApiKey}
-        onSaveTmdbKey={setTmdbApiKey}
+        onSaveTmdbKey={handleSaveTmdbKey}
         onOpenGuide={() => setGuideOpen(true)}
         preferences={preferences}
         addons={addons}
@@ -743,7 +757,7 @@ export default function App() {
         open={guideOpen}
         onClose={() => setGuideOpen(false)}
         tmdbApiKey={tmdbApiKey}
-        onSaveTmdbKey={setTmdbApiKey}
+        onSaveTmdbKey={handleSaveTmdbKey}
       />
 
       {/* Player de Vídeo Editorial em Tela Cheia */}

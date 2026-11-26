@@ -54,8 +54,15 @@ export function OnboardingGuide({
   const [showKey, setShowKey] = useState(false);
   const [testing, setTesting] = useState(false);
   const [keyStatus, setKeyStatus] = useState<'idle' | 'success' | 'error'>('idle');
+  const [keyError, setKeyError] = useState<string | null>(null);
 
   const keySource = getTmdbKeySource();
+
+  useEffect(() => {
+    if (open) {
+      setKeyInput(tmdbApiKey);
+    }
+  }, [open, tmdbApiKey]);
 
   useEffect(() => {
     if (!open) return;
@@ -84,17 +91,27 @@ export function OnboardingGuide({
 
   const handleValidateAndSave = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!keyInput.trim() || testing) return;
+    const cleaned = keyInput.trim().replace(/^Bearer\s+/i, '');
+    if (!cleaned || testing) return;
     setTesting(true);
     setKeyStatus('idle');
+    setKeyError(null);
     try {
-      const valid = await validateTmdbKey(keyInput);
-      if (valid) {
-        onSaveTmdbKey(keyInput.trim());
+      const result = await validateTmdbKey(cleaned);
+      if (result.ok) {
+        setKeyInput(cleaned);
+        onSaveTmdbKey(cleaned);
         setKeyStatus('success');
+        setKeyError(null);
       } else {
         setKeyStatus('error');
+        setKeyError(result.error || 'Chave inválida ou sem acesso ao TMDB.');
       }
+    } catch (err) {
+      setKeyStatus('error');
+      setKeyError(
+        err instanceof Error ? err.message : 'Erro inesperado ao validar a chave TMDB.'
+      );
     } finally {
       setTesting(false);
     }
@@ -233,6 +250,7 @@ export function OnboardingGuide({
                             onChange={(e) => {
                               setKeyInput(e.target.value);
                               if (keyStatus !== 'idle') setKeyStatus('idle');
+                              if (keyError) setKeyError(null);
                             }}
                             placeholder="Cole sua API Key v3 ou Token Bearer v4"
                             className="h-10 w-full rounded-xl border border-[var(--ph-border)] bg-[var(--ph-surface-2)] pl-3.5 pr-9 font-mono text-xs text-[var(--ph-text)] placeholder-[var(--ph-text-muted)] outline-none focus:border-[var(--ph-border-strong)]"
@@ -268,7 +286,8 @@ export function OnboardingGuide({
                       )}
                       {keyStatus === 'error' && (
                         <p className="text-xs text-[var(--ph-text-muted)]">
-                          Chave inválida ou sem acesso ao TMDB. Verifique e tente novamente.
+                          {keyError ||
+                            'Chave inválida ou sem acesso ao TMDB. Verifique e tente novamente.'}
                         </p>
                       )}
                     </form>

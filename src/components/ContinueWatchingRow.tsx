@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { ChevronLeft, ChevronRight, Film, Play, Tv, X } from 'lucide-react';
 import type { WatchHistoryEntry } from '../services/storage';
-import { IMG_BASE } from '../services/tmdb';
+import { getImageUrl, handleTmdbImageError } from '../services/tmdb';
 import type { MediaItem, PlayRequest } from '../types/media';
 
 interface ContinueWatchingRowProps {
@@ -27,6 +27,7 @@ export function ContinueWatchingRow({
   const scrollRef = useRef<HTMLDivElement>(null);
   const [canScrollLeft, setCanScrollLeft] = useState(false);
   const [canScrollRight, setCanScrollRight] = useState(false);
+  const [failedImageKeys, setFailedImageKeys] = useState<Record<string, true>>({});
 
   const updateScrollState = useCallback(() => {
     const el = scrollRef.current;
@@ -86,11 +87,9 @@ export function ContinueWatchingRow({
             {entries.map((entry, idx) => {
               const title = entry.item.title || entry.item.name || 'Sem título';
               const imagePath = entry.item.backdrop_path || entry.item.poster_path;
-              const imageUrl = entry.item.backdrop_path
-                ? `${IMG_BASE.backdrop}${entry.item.backdrop_path}`
-                : entry.item.poster_path
-                  ? `${IMG_BASE.poster}${entry.item.poster_path}`
-                  : null;
+              const imageSize = entry.item.backdrop_path ? 'original' : 'w500';
+              const imageUrl = getImageUrl(imagePath, imageSize);
+              const isImageFailed = Boolean(failedImageKeys[entry.key]);
 
               const handleResume = () => {
                 onResume(entry, {
@@ -132,12 +131,17 @@ export function ContinueWatchingRow({
                     }}
                     className="relative aspect-video w-full cursor-pointer overflow-hidden rounded-xl bg-[var(--ph-surface)] ring-1 ring-[var(--ph-border)] transition-[ring-color] duration-300 group-hover:ring-[var(--ph-border-strong)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ph-text)]"
                   >
-                    {imagePath && imageUrl ? (
+                    {imagePath && imageUrl && !isImageFailed ? (
                       <img
                         src={imageUrl}
                         alt={title}
                         loading="lazy"
                         draggable={false}
+                        onError={(e) =>
+                          handleTmdbImageError(e, imagePath, imageSize, () =>
+                            setFailedImageKeys((prev) => ({ ...prev, [entry.key]: true }))
+                          )
+                        }
                         className="h-full w-full object-cover transition-transform duration-500 ease-out group-hover:scale-[1.03]"
                       />
                     ) : (

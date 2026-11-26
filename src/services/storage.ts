@@ -170,7 +170,7 @@ export function loadTmdbApiKey(): string {
 }
 
 export function saveTmdbApiKey(key: string): void {
-  const cleaned = key.trim();
+  const cleaned = key.trim().replace(/^Bearer\s+/i, '');
   setRuntimeTmdbKey(cleaned);
   try {
     if (cleaned) {
@@ -380,10 +380,13 @@ async function pushConfigToServer(payload: {
   ratings: Record<string, number>;
   watchHistory: WatchHistoryEntry[];
 }): Promise<void> {
+  const controller = new AbortController();
+  const timer = window.setTimeout(() => controller.abort(), 4000);
   try {
     await fetch(`${PLAYER_API_BASE}/api/config`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
+      signal: controller.signal,
       body: JSON.stringify({
         tmdbApiKey: payload.tmdbApiKey,
         addons: payload.addons,
@@ -399,7 +402,9 @@ async function pushConfigToServer(payload: {
       }),
     });
   } catch {
-    // Backend pode estar offline; localStorage continua preservado
+    // Backend pode estar offline (ex: localhost:3001 parado); localStorage continua preservado
+  } finally {
+    window.clearTimeout(timer);
   }
 }
 
@@ -430,6 +435,7 @@ export function usePlayHubStorage() {
   useEffect(() => {
     let active = true;
     const controller = new AbortController();
+    const timer = window.setTimeout(() => controller.abort(), 3000);
 
     fetch(`${PLAYER_API_BASE}/api/config`, { signal: controller.signal })
       .then(async (res) => {
@@ -506,10 +512,14 @@ export function usePlayHubStorage() {
       .catch(() => {
         hydratedFromServerRef.current = true;
         if (active) setConfigHydrated(true);
+      })
+      .finally(() => {
+        window.clearTimeout(timer);
       });
 
     return () => {
       active = false;
+      window.clearTimeout(timer);
       controller.abort();
     };
   }, []);
@@ -540,9 +550,26 @@ export function usePlayHubStorage() {
   }, [tmdbApiKey, addons, addonListUrls, preferences, watchlist, ratings, watchHistory]);
 
   const setTmdbApiKey = useCallback((key: string) => {
-    const cleaned = key.trim();
+    const cleaned = key.trim().replace(/^Bearer\s+/i, '');
     saveTmdbApiKey(cleaned);
     setTmdbApiKeyState(cleaned);
+
+    // Envia PUT /api/config em segundo plano (isolado), sem bloquear a UI caso o backend esteja offline
+    void (async () => {
+      try {
+        await pushConfigToServer({
+          tmdbApiKey: cleaned,
+          addons: loadAddons(),
+          addonListUrls: loadAddonListUrls(),
+          preferences: loadPreferences(),
+          watchlist: loadWatchlist(),
+          ratings: loadRatings(),
+          watchHistory: loadWatchHistory(),
+        });
+      } catch {
+        // Isolado: falha no servidor local não afeta o salvamento em localStorage
+      }
+    })();
   }, []);
 
   const setRating = useCallback((key: string, rating: number) => {
@@ -867,7 +894,7 @@ export function usePlayHubStorage() {
         setRatingsState(nextRatings);
         setWatchHistoryState(nextHistory);
 
-        await pushConfigToServer({
+        void pushConfigToServer({
           tmdbApiKey: nextTmdbKey,
           addons: nextAddons,
           addonListUrls: nextLists,

@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { Bookmark, Check, Clock, Loader2, Play, Star, X } from 'lucide-react';
 import { useIsDesktop } from '../hooks/useIsDesktop';
-import { getMediaDetails, IMG_BASE } from '../services/tmdb';
+import { getImageUrl, getMediaDetails, handleTmdbImageError } from '../services/tmdb';
 import type { MediaDetails, MediaItem, PlayRequest } from '../types/media';
 
 interface DetailsModalProps {
@@ -189,14 +189,22 @@ function DetailsPanel({
 
       {/* Banner cinematográfico */}
       <div className="relative h-60 w-full shrink-0 bg-[var(--ph-surface-2)] sm:h-72">
-        {item.backdrop_path || item.poster_path ? (
+        {(item.backdrop_path || item.poster_path) ? (
           <img
+            key={`${item.id}-${item.backdrop_path || item.poster_path}`}
             src={
               item.backdrop_path
-                ? `${IMG_BASE.backdrop}${item.backdrop_path}`
-                : `${IMG_BASE.poster}${item.poster_path}`
+                ? getImageUrl(item.backdrop_path, 'original') || ''
+                : getImageUrl(item.poster_path, 'w500') || ''
             }
             alt={title}
+            onError={(e) =>
+              handleTmdbImageError(
+                e,
+                item.backdrop_path || item.poster_path,
+                item.backdrop_path ? 'original' : 'w500'
+              )
+            }
             className="h-full w-full object-cover object-center"
           />
         ) : null}
@@ -292,11 +300,10 @@ function DetailsPanel({
               onClick={() => onToggleWatchlist(item)}
               aria-label={inWatchlist ? 'Remover da Minha Lista' : 'Salvar na Minha Lista'}
               title={inWatchlist ? 'Salvo na Minha Lista' : 'Salvar na Minha Lista'}
-              className={`inline-flex h-11 shrink-0 items-center justify-center gap-2 rounded-xl border px-4 text-sm font-medium transition-colors ${
-                inWatchlist
+              className={`inline-flex h-11 shrink-0 items-center justify-center gap-2 rounded-xl border px-4 text-sm font-medium transition-colors ${inWatchlist
                   ? 'border-[var(--ph-border-strong)] bg-[var(--ph-hover)] text-[var(--ph-text)]'
                   : 'border-[var(--ph-border)] bg-[var(--ph-surface-2)] text-[var(--ph-text-muted)] hover:bg-[var(--ph-hover)] hover:text-[var(--ph-text)]'
-              }`}
+                }`}
             >
               {inWatchlist ? (
                 <>
@@ -394,11 +401,10 @@ function DetailsPanel({
                   className="p-1 focus:outline-none"
                 >
                   <Star
-                    className={`h-5 w-5 transition-colors ${
-                      active
+                    className={`h-5 w-5 transition-colors ${active
                         ? 'fill-[#E5A93C] text-[#E5A93C]'
                         : 'text-[var(--ph-text-muted)] opacity-35 hover:opacity-70'
-                    }`}
+                      }`}
                   />
                 </motion.button>
               );

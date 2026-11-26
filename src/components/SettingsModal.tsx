@@ -250,13 +250,15 @@ export function SettingsModal({
 
   const handleTestAndSaveTmdb = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!tmdbInput.trim() || testingTmdb) return;
+    const cleaned = tmdbInput.trim().replace(/^Bearer\s+/i, '');
+    if (!cleaned || testingTmdb) return;
     setTestingTmdb(true);
     setTmdbFeedback(null);
     try {
-      const valid = await validateTmdbKey(tmdbInput);
-      if (valid) {
-        onSaveTmdbKey(tmdbInput.trim());
+      const result = await validateTmdbKey(cleaned);
+      if (result.ok) {
+        setTmdbInput(cleaned);
+        onSaveTmdbKey(cleaned);
         setTmdbFeedback({
           type: 'success',
           message: 'Chave validada e salva. Catálogo atualizado automaticamente.',
@@ -264,9 +266,16 @@ export function SettingsModal({
       } else {
         setTmdbFeedback({
           type: 'error',
-          message: 'Chave inválida. Verifique sua API Key v3 ou Token Bearer v4.',
+          message:
+            result.error || 'Chave inválida. Verifique sua API Key v3 ou Token Bearer v4.',
         });
       }
+    } catch (err) {
+      setTmdbFeedback({
+        type: 'error',
+        message:
+          err instanceof Error ? err.message : 'Erro inesperado ao validar a chave TMDB.',
+      });
     } finally {
       setTestingTmdb(false);
     }

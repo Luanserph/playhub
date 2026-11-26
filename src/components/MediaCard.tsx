@@ -1,6 +1,7 @@
+import { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
 import { Bookmark, Check, Film, Star, Tv } from 'lucide-react';
-import { IMG_BASE } from '../services/tmdb';
+import { getImageUrl, handleTmdbImageError } from '../services/tmdb';
 import type { MediaItem } from '../types/media';
 
 interface MediaCardProps {
@@ -31,6 +32,12 @@ export function MediaCard({
   const title = item.title || item.name || 'Sem título';
   const year = (item.release_date || item.first_air_date || '').slice(0, 4);
   const tmdbScore = item.vote_average ? item.vote_average.toFixed(1) : null;
+  const posterUrl = getImageUrl(item.poster_path, 'w500');
+  const [imgFailed, setImgFailed] = useState(false);
+
+  useEffect(() => {
+    setImgFailed(false);
+  }, [item.poster_path]);
 
   return (
     <motion.div
@@ -54,12 +61,13 @@ export function MediaCard({
     >
       {/* Pôster 2:3 */}
       <div className="relative aspect-[2/3] w-full overflow-hidden rounded-xl bg-[var(--ph-surface)] ring-1 ring-[var(--ph-border)] transition-[box-shadow,ring-color] duration-300 group-hover:ring-[var(--ph-border-strong)] group-focus-visible:ring-2 group-focus-visible:ring-[var(--ph-text)]">
-        {item.poster_path ? (
+        {posterUrl && !imgFailed ? (
           <img
-            src={`${IMG_BASE.poster}${item.poster_path}`}
+            src={posterUrl}
             alt={title}
             loading="lazy"
             draggable={false}
+            onError={(e) => handleTmdbImageError(e, item.poster_path, 'w500', () => setImgFailed(true))}
             className="h-full w-full object-cover transition-transform duration-500 ease-out group-hover:scale-[1.03]"
           />
         ) : (

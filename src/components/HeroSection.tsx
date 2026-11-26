@@ -1,7 +1,7 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
 import { Info, Loader2, Play, Star } from 'lucide-react';
-import { getMediaDetails, IMG_BASE } from '../services/tmdb';
+import { getImageUrl, getMediaDetails, handleTmdbImageError } from '../services/tmdb';
 import type { MediaItem, PlayRequest } from '../types/media';
 
 interface HeroSectionProps {
@@ -12,10 +12,16 @@ interface HeroSectionProps {
 
 export function HeroSection({ item, onOpenDetails, onPlay }: HeroSectionProps) {
   const [resolvingPlay, setResolvingPlay] = useState(false);
+  const [backdropFailed, setBackdropFailed] = useState(false);
 
   const title = item.title || item.name || 'Sem título';
   const year = (item.release_date || item.first_air_date || '').slice(0, 4);
   const score = item.vote_average ? item.vote_average.toFixed(1) : null;
+  const backdropUrl = getImageUrl(item.backdrop_path, 'original');
+
+  useEffect(() => {
+    setBackdropFailed(false);
+  }, [item.id, item.backdrop_path]);
 
   const handleQuickPlay = async () => {
     if (resolvingPlay) return;
@@ -43,14 +49,17 @@ export function HeroSection({ item, onOpenDetails, onPlay }: HeroSectionProps) {
   return (
     <section className="relative min-h-[66vh] w-full overflow-hidden sm:min-h-[74vh] lg:min-h-[78vh]">
       {/* Backdrop full-bleed */}
-      {item.backdrop_path && (
+      {backdropUrl && !backdropFailed && (
         <motion.img
           key={item.id}
           initial={{ opacity: 0, scale: 1.04 }}
           animate={{ opacity: 1, scale: 1 }}
           transition={{ duration: 0.9, ease: [0.22, 1, 0.36, 1] }}
-          src={`${IMG_BASE.backdrop}${item.backdrop_path}`}
+          src={backdropUrl}
           alt={title}
+          onError={(e) =>
+            handleTmdbImageError(e, item.backdrop_path, 'original', () => setBackdropFailed(true))
+          }
           className="absolute inset-0 h-full w-full object-cover object-center"
         />
       )}

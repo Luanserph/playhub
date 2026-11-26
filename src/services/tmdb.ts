@@ -1,15 +1,23 @@
+import type { SyntheticEvent } from 'react';
 import type { MediaDetails, MediaItem, MediaType } from '../types/media';
 import { resolveLanguageConfig } from '../utils/locale';
 
 const ENV_API_KEY = (import.meta.env.VITE_TMDB_API_KEY as string | undefined)?.trim() || '';
 const BASE_URL = 'https://api.themoviedb.org/3';
+const LOCAL_TMDB_PROXY_BASE = 'http://127.0.0.1:3001/api/tmdb';
+const LOCAL_TMDB_IMAGE_PROXY_BASE = 'http://127.0.0.1:3001/api/tmdb-image';
+const DIRECT_TMDB_IMAGE_BASE = 'https://image.tmdb.org/t/p';
 const TMDB_KEY_STORAGE = 'playhub_tmdb_api_key';
 
 let activeTmdbLanguage = resolveLanguageConfig('auto').tmdbLang;
 let runtimeTmdbKey: string | null = null;
 
+export function cleanTmdbKey(rawKey: string): string {
+    return rawKey.trim().replace(/^Bearer\s+/i, '');
+}
+
 export function setRuntimeTmdbKey(key: string): void {
-    runtimeTmdbKey = key.trim();
+    runtimeTmdbKey = cleanTmdbKey(key);
 }
 
 export function getStoredTmdbKey(): string {
@@ -34,25 +42,33 @@ export function getTmdbKeySource(): 'config' | 'env' | 'none' {
     return 'none';
 }
 
-function buildTmdbRequest(
+class TmdbHttpError extends Error {
+    status: number;
+    constructor(status: number, message: string) {
+        super(message);
+        this.name = 'TmdbHttpError';
+        this.status = status;
+    }
+}
+
+function buildDirectTmdbRequest(
     endpoint: string,
     key: string,
-    params: Record<string, string> = {},
-    langOverride?: string
-): { url: string; headers: Record<string, string> } {
-    const cleanedKey = key.trim();
+    params: Record<string, string> = {}
+): { url: string; headers?: Record<string, string> } {
+    const cleanedKey = cleanTmdbKey(key);
     const isV4Token = cleanedKey.length > 60;
-    const url = new URL(`${BASE_URL}${endpoint}`);
-    const headers: Record<string, string> = { Accept: 'application/json' };
+    const normalizedEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
+    const url = new URL(`${BASE_URL}${normalizedEndpoint}`);
+    let headers: Record<string, string> | undefined;
 
     if (isV4Token) {
-        headers.Authorization = `Bearer ${cleanedKey}`;
+        headers = {
+            Authorization: `Bearer ${cleanedKey}`,
+            Accept: 'application/json',
+        };
     } else {
         url.searchParams.set('api_key', cleanedKey);
-    }
-
-    if (langOverride !== '') {
-        url.searchParams.set('language', langOverride || activeTmdbLanguage);
     }
 
     Object.entries(params).forEach(([k, value]) => {
@@ -62,15 +78,118 @@ function buildTmdbRequest(
     return { url: url.toString(), headers };
 }
 
-export async function validateTmdbKey(rawKey: string): Promise<boolean> {
-    const cleaned = rawKey.trim();
-    if (!cleaned) return false;
+function buildProxyTmdbUrl(endpoint: string, params: Record<string, string> = {}): string {
+    const normalizedEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
+    const url = new URL(`${LOCAL_TMDB_PROXY_BASE}${normalizedEndpoint}`);
+    Object.entries(params).forEach(([k, value]) => {
+        url.searchParams.set(k, value);
+    });
+    return url.toString();
+}
+
+async function parseTmdbResponse<T>(res: Response): Promise<T> {
+    const rawText = await res.text();
+    let data: unknown = null;
     try {
-        const { url, headers } = buildTmdbRequest('/configuration', cleaned, {}, '');
-        const res = await fetch(url, { headers });
-        return res.ok;
+        data = rawText ? JSON.parse(rawText) : null;
     } catch {
-        return false;
+        throw new TmdbHttpError(
+            res.status || 502,
+            `Erro HTTP ${res.status || 502} ao acessar o TMDB (resposta não-JSON).`
+        );
+    }
+
+    if (!res.ok) {
+        const record = data && typeof data === 'object' ? (data as Record<string, unknown>) : null;
+        const detail =
+            (typeof record?.error === 'string' && record.error) ||
+            (typeof record?.status_message === 'string' && record.status_message) ||
+            res.statusText;
+        throw new TmdbHttpError(
+            res.status,
+            detail
+                ? `Erro HTTP ${res.status}: ${detail}`
+                : `Erro na API TMDB (HTTP ${res.status})`
+        );
+    }
+
+    return data as T;
+}
+
+export async function tmdbFetch<T>(
+    endpoint: string,
+    params: Record<string, string> = {},
+    customKey?: string
+): Promise<T> {
+    const rawKey = customKey !== undefined ? customKey : getActiveTmdbKey() || '';
+    const activeKey = cleanTmdbKey(rawKey);
+    if (!activeKey) {
+        throw new Error('MISSING_API_KEY');
+    }
+
+    const normalizedEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
+    const finalParams: Record<string, string> = { ...params };
+    if (normalizedEndpoint !== '/configuration' && !('language' in finalParams)) {
+        finalParams.language = activeTmdbLanguage;
+    }
+
+    // 1. Tenta primeiro pelo backend local Fastify (sem Origin de navegador + cache em memória)
+    const proxyUrl = buildProxyTmdbUrl(normalizedEndpoint, finalParams);
+    let proxyResponse: Response | null = null;
+    try {
+        proxyResponse = await fetch(proxyUrl, {
+            headers: {
+                'x-tmdb-key': activeKey,
+                Accept: 'application/json',
+            },
+        });
+    } catch {
+        // Backend local offline/inacessível: faz fallback automático para o TMDB direto
+        proxyResponse = null;
+    }
+
+    if (proxyResponse) {
+        return parseTmdbResponse<T>(proxyResponse);
+    }
+
+    // 2. Fallback direto pelo navegador
+    const { url, headers } = buildDirectTmdbRequest(normalizedEndpoint, activeKey, finalParams);
+    const directRes = headers ? await fetch(url, { headers }) : await fetch(url);
+    return parseTmdbResponse<T>(directRes);
+}
+
+export interface TmdbValidationResult {
+    ok: boolean;
+    error?: string;
+}
+
+export async function validateTmdbKey(rawKey: string): Promise<TmdbValidationResult> {
+    const key = cleanTmdbKey(rawKey);
+    if (!key) {
+        return { ok: false, error: 'Informe uma chave de API do TMDB.' };
+    }
+
+    try {
+        await tmdbFetch<Record<string, unknown>>('/configuration', {}, key);
+        return { ok: true };
+    } catch (err) {
+        if (err instanceof TmdbHttpError) {
+            if (err.status === 401) {
+                return {
+                    ok: false,
+                    error: 'Chave rejeitada pelo TMDB (HTTP 401). Verifique se copiou a API Key v3 ou Token v4 corretamente.',
+                };
+            }
+            return {
+                ok: false,
+                error: err.message,
+            };
+        }
+        const message = err instanceof Error ? err.message : String(err);
+        return {
+            ok: false,
+            error: `Falha de rede ao conectar ao TMDB: ${message}`,
+        };
     }
 }
 
@@ -82,9 +201,61 @@ export function getTmdbLanguage(): string {
     return activeTmdbLanguage;
 }
 
+export type TmdbImageSize =
+    | 'w92'
+    | 'w154'
+    | 'w185'
+    | 'w300'
+    | 'w342'
+    | 'w500'
+    | 'w780'
+    | 'h632'
+    | 'original';
+
+export function getImageUrl(
+    path: string | null | undefined,
+    size: TmdbImageSize = 'w500'
+): string | null {
+    if (!path) return null;
+    const normalizedPath = path.startsWith('/') ? path : `/${path}`;
+    return `${LOCAL_TMDB_IMAGE_PROXY_BASE}/${size}${normalizedPath}`;
+}
+
+export function getDirectImageUrl(
+    path: string | null | undefined,
+    size: TmdbImageSize = 'w500'
+): string | null {
+    if (!path) return null;
+    const normalizedPath = path.startsWith('/') ? path : `/${path}`;
+    return `${DIRECT_TMDB_IMAGE_BASE}/${size}${normalizedPath}`;
+}
+
+export function handleTmdbImageError(
+    e: SyntheticEvent<HTMLImageElement>,
+    path: string | null | undefined,
+    size: TmdbImageSize = 'w500',
+    onFinalError?: () => void
+): void {
+    const img = e.currentTarget;
+    if (img.dataset.fallbackTried !== '1') {
+        const directUrl = getDirectImageUrl(path, size);
+        if (directUrl && img.src !== directUrl) {
+            img.dataset.fallbackTried = '1';
+            img.src = directUrl;
+            return;
+        }
+    }
+    img.dataset.fallbackTried = '1';
+    if (onFinalError) {
+        onFinalError();
+    } else {
+        img.style.display = 'none';
+    }
+}
+
 export const IMG_BASE = {
-    poster: 'https://image.tmdb.org/t/p/w500',
-    backdrop: 'https://image.tmdb.org/t/p/original',
+    poster: `${LOCAL_TMDB_IMAGE_PROXY_BASE}/w500`,
+    backdrop: `${LOCAL_TMDB_IMAGE_PROXY_BASE}/original`,
 };
 
 export interface GenreItem {
@@ -124,25 +295,6 @@ export function extractImdbId(raw: string): string | null {
     return match ? match[0].toLowerCase() : null;
 }
 
-async function tmdbFetch<T>(
-    endpoint: string,
-    params: Record<string, string> = {},
-    langOverride?: string
-): Promise<T> {
-    const activeKey = getActiveTmdbKey();
-    if (!activeKey) {
-        throw new Error('MISSING_API_KEY');
-    }
-
-    const { url, headers } = buildTmdbRequest(endpoint, activeKey, params, langOverride);
-
-    const res = await fetch(url, { headers });
-    if (!res.ok) {
-        throw new Error(`Erro na API TMDB (${res.status})`);
-    }
-    return res.json() as Promise<T>;
-}
-
 export async function getTrending(filter: 'all' | 'movie' | 'tv' = 'all'): Promise<MediaItem[]> {
     const data = await tmdbFetch<{ results: MediaItem[] }>(`/trending/${filter}/week`);
     return data.results
@@ -165,7 +317,10 @@ export async function searchCatalogPaginated(
         const data = await tmdbFetch<{
             movie_results: MediaItem[];
             tv_results: MediaItem[];
-        }>(`/find/${imdbId}`, { external_source: 'imdb_id' }, lang);
+        }>(`/find/${imdbId}`, {
+            external_source: 'imdb_id',
+            ...(lang ? { language: lang } : {}),
+        });
 
         const movies = data.movie_results.map((m) => ({ ...m, media_type: 'movie' as const }));
         const shows = data.tv_results.map((t) => ({ ...t, media_type: 'tv' as const }));
@@ -184,7 +339,11 @@ export async function searchCatalogPaginated(
         page: number;
         total_pages: number;
         total_results: number;
-    }>('/search/multi', { query, page: String(page) }, lang);
+    }>('/search/multi', {
+        query,
+        page: String(page),
+        ...(lang ? { language: lang } : {}),
+    });
 
     return {
         results: data.results.filter(
@@ -233,7 +392,10 @@ export async function getPopularTv(): Promise<MediaItem[]> {
 }
 
 export async function getGenres(type: MediaType, lang?: string): Promise<GenreItem[]> {
-    const data = await tmdbFetch<{ genres: GenreItem[] }>(`/genre/${type}/list`, {}, lang);
+    const data = await tmdbFetch<{ genres: GenreItem[] }>(
+        `/genre/${type}/list`,
+        lang ? { language: lang } : {}
+    );
     return Array.isArray(data.genres) ? data.genres : [];
 }
 
@@ -311,7 +473,10 @@ export async function discoverMedia(params: DiscoverParams): Promise<PaginatedMe
         page: number;
         total_pages: number;
         total_results: number;
-    }>(`/discover/${type}`, query, lang);
+    }>(`/discover/${type}`, {
+        ...query,
+        ...(lang ? { language: lang } : {}),
+    });
 
     return {
         results: data.results.map((item) => ({

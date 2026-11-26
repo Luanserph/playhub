@@ -1,7 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { ArrowUpRight, Film, Loader2, Search, Star, Tv, X } from 'lucide-react';
-import { extractImdbId, IMG_BASE, searchCatalogPaginated } from '../services/tmdb';
+import {
+  extractImdbId,
+  getImageUrl,
+  handleTmdbImageError,
+  searchCatalogPaginated,
+} from '../services/tmdb';
 import type { MediaItem } from '../types/media';
 
 interface CommandSearchProps {
@@ -271,8 +276,9 @@ export function CommandSearch({ open, onClose, onSelect }: CommandSearchProps) {
                           <div className="h-14 w-10 shrink-0 overflow-hidden rounded-lg bg-[var(--ph-surface-2)] ring-1 ring-[var(--ph-border)]">
                             {item.poster_path ? (
                               <img
-                                src={`${IMG_BASE.poster}${item.poster_path}`}
+                                src={getImageUrl(item.poster_path, 'w185') || ''}
                                 alt={title}
+                                onError={(e) => handleTmdbImageError(e, item.poster_path, 'w185')}
                                 className="h-full w-full object-cover"
                               />
                             ) : (

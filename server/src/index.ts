@@ -8,6 +8,7 @@ import {
 } from './services/configStore';
 import { handleStreamProxy } from './services/streamProxy';
 import { resolveStreams, type StreamMediaType } from './services/streamResolver';
+import { handleTmdbImageProxy, handleTmdbProxy } from './services/tmdbProxy';
 import {
   getCachedSubtitle,
   resolveSubtitle,
@@ -174,6 +175,16 @@ async function start() {
   // 1d. Diagnóstico do último erro técnico do backend/FFmpeg
   app.get('/api/debug/last-error', async () => {
     return { error: getLastStreamError() };
+  });
+
+  // 1e. Proxy server-side para TMDB (evita 403 por Origin de navegador + cache 10 min)
+  app.get<{ Params: { '*': string } }>('/api/tmdb/*', async (request, reply) => {
+    return handleTmdbProxy(request.params['*'] || '', request, reply);
+  });
+
+  // 1f. Proxy server-side de imagens do TMDB (com validação de tamanho + cache LRU de 300 itens)
+  app.get<{ Params: { '*': string } }>('/api/tmdb-image/*', async (request, reply) => {
+    return handleTmdbImageProxy(request.params['*'] || '', request, reply);
   });
 
   // 2. Resolução unificada de Streams (HTTP + Torrent P2P) + Legenda PT-BR automática
