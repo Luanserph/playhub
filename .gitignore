@@ -1,0 +1,51 @@
+# Dependências
+node_modules/
+server/node_modules/
+
+# Builds
+dist/
+dist-ssr/
+build/
+server/dist/
+
+# Variáveis de ambiente (mantendo .env.example versionado)
+.env
+.env.*
+server/.env
+server/.env.*
+!.env.example
+
+# Dados locais, cache e temporários do backend
+server/data/store.json
+server/tmp/
+*.tmp
+*.local
+
+# Logs e arquivos do sistema operacional
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+.DS_Store
+Thumbs.db
+
+# Builds futuros (Desktop Tauri & Android Capacitor)
+src-tauri/target/
+android/app/build/
+android/.gradle/
+*.apk
+*.msi
+*.exe
+
+# Editores / IDEs
+.vscode/*
+!.vscode/extensions.json
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?

@@ -1,0 +1,30 @@
+[
+  {
+    "name": "Torrentio",
+    "description": "Streams de filmes e séries a partir de múltiplos indexadores públicos de torrent.",
+    "logo": "https://torrentio.strem.fun/images/logo_v1.png",
+    "transportUrl": "https://torrentio.strem.fun/manifest.json",
+    "resources": ["stream"]
+  },
+  {
+    "name": "OpenSubtitles v3",
+    "description": "Legendas oficiais da comunidade em múltiplos idiomas incluindo PT-BR.",
+    "logo": "https://opensubtitles-v3.strem.io/logo.png",
+    "transportUrl": "https://opensubtitles-v3.strem.io/manifest.json",
+    "resources": ["subtitles"]
+  },
+  {
+    "name": "MediaFusion",
+    "description": "Catálogo e fontes de streaming comunitárias compatíveis com Stremio.",
+    "logo": "https://mediafusion.elfhosted.com/static/images/mediafusion_logo.png",
+    "transportUrl": "https://mediafusion.elfhosted.com/manifest.json",
+    "resources": ["stream"]
+  },
+  {
+    "name": "Comet",
+    "description": "Agregador rápido de fontes de stream para filmes e séries.",
+    "logo": "https://comet.elfhosted.com/static/logo.png",
+    "transportUrl": "https://comet.elfhosted.com/manifest.json",
+    "resources": ["stream"]
+  }
+]

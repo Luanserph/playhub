@@ -1,0 +1,111 @@
+@import "tailwindcss";
+
+@layer base {
+  :root,
+  [data-theme="dark"] {
+    color-scheme: dark;
+    --ph-bg: #09090B;
+    --ph-surface: #121215;
+    --ph-surface-2: #18181B;
+    --ph-surface-glass: rgba(18, 18, 21, 0.86);
+    --ph-sidebar: rgba(9, 9, 11, 0.95);
+    --ph-topbar: rgba(9, 9, 11, 0.82);
+    --ph-border: rgba(255, 255, 255, 0.08);
+    --ph-border-strong: rgba(255, 255, 255, 0.16);
+    --ph-text: #FAFAFA;
+    --ph-text-muted: #A1A1AA;
+    --ph-hover: rgba(255, 255, 255, 0.08);
+    --ph-hover-subtle: rgba(255, 255, 255, 0.04);
+    --ph-btn-primary-bg: #FFFFFF;
+    --ph-btn-primary-fg: #09090B;
+    --ph-btn-primary-hover: #E4E4E7;
+    --ph-btn-secondary-bg: rgba(255, 255, 255, 0.08);
+    --ph-btn-secondary-hover: rgba(255, 255, 255, 0.15);
+    --ph-scrollbar: rgba(255, 255, 255, 0.14);
+    --ph-scrollbar-hover: rgba(255, 255, 255, 0.26);
+    --ph-backdrop-overlay: rgba(0, 0, 0, 0.74);
+  }
+
+  [data-theme="light"] {
+    color-scheme: light;
+    --ph-bg: #F8F8F9;
+    --ph-surface: #FFFFFF;
+    --ph-surface-2: #F0F0F2;
+    --ph-surface-glass: rgba(255, 255, 255, 0.88);
+    --ph-sidebar: rgba(248, 248, 249, 0.95);
+    --ph-topbar: rgba(248, 248, 249, 0.86);
+    --ph-border: rgba(0, 0, 0, 0.08);
+    --ph-border-strong: rgba(0, 0, 0, 0.16);
+    --ph-text: #09090B;
+    --ph-text-muted: #52525B;
+    --ph-hover: rgba(0, 0, 0, 0.06);
+    --ph-hover-subtle: rgba(0, 0, 0, 0.03);
+    --ph-btn-primary-bg: #09090B;
+    --ph-btn-primary-fg: #FAFAFA;
+    --ph-btn-primary-hover: #27272A;
+    --ph-btn-secondary-bg: rgba(0, 0, 0, 0.06);
+    --ph-btn-secondary-hover: rgba(0, 0, 0, 0.11);
+    --ph-scrollbar: rgba(0, 0, 0, 0.14);
+    --ph-scrollbar-hover: rgba(0, 0, 0, 0.26);
+    --ph-backdrop-overlay: rgba(9, 9, 11, 0.48);
+  }
+
+  html,
+  body {
+    background-color: var(--ph-bg);
+    color: var(--ph-text);
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    overflow-x: hidden;
+    transition: background-color 0.22s ease, color 0.22s ease;
+  }
+
+  /* Scrollbar minimalista para desktop (Tauri / Browser) */
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: var(--ph-scrollbar);
+    border-radius: 9999px;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background: var(--ph-scrollbar-hover);
+  }
+}
+
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+/* Estilo editorial das legendas e elevação acima da barra de controles quando o HUD está visível */
+video.playhub-video::cue {
+  background-color: rgba(9, 9, 11, 0.78);
+  color: #FAFAFA;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  font-size: clamp(1rem, 2.2vw, 1.45rem);
+  font-weight: 500;
+  line-height: 1.4;
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.85);
+}
+
+video.playhub-video::-webkit-media-text-track-container {
+  transition: transform 0.22s ease;
+  transform: translateY(-20px);
+}
+
+video.playhub-video.hud-visible::-webkit-media-text-track-container {
+  transform: translateY(-104px);
+}
