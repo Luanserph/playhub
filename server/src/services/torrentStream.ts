@@ -2,6 +2,7 @@ import { spawn, spawnSync } from 'node:child_process';
 import { PassThrough, type Readable } from 'node:stream';
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import torrentStream from 'torrent-stream';
+import { resolveBinaryPath } from '../utils/paths';
 
 interface TorrentFileLike {
   name: string;
@@ -141,8 +142,9 @@ function checkFfmpegCapabilities(): { available: boolean; nvenc: boolean } {
   }
   ffmpegChecked = true;
 
+  const ffmpegBin = resolveBinaryPath('ffmpeg');
   try {
-    const versionCheck = spawnSync('ffmpeg', ['-version'], {
+    const versionCheck = spawnSync(ffmpegBin, ['-version'], {
       stdio: 'pipe',
       timeout: 3000,
     });
@@ -157,7 +159,7 @@ function checkFfmpegCapabilities(): { available: boolean; nvenc: boolean } {
 
     ffmpegAvailable = true;
 
-    const encCheck = spawnSync('ffmpeg', ['-hide_banner', '-encoders'], {
+    const encCheck = spawnSync(ffmpegBin, ['-hide_banner', '-encoders'], {
       stdio: 'pipe',
       timeout: 3000,
     });
@@ -401,7 +403,7 @@ function serveRawTorrentFile(
 async function probeDurationSeconds(inputHttpUrl: string): Promise<number> {
   return new Promise<number>((resolve) => {
     const proc = spawn(
-      'ffprobe',
+      resolveBinaryPath('ffprobe'),
       [
         '-v',
         'error',
@@ -489,7 +491,7 @@ export async function getTorrentMeta(
 async function probePreferredAudioIndex(inputHttpUrl: string): Promise<number> {
   return new Promise<number>((resolve) => {
     const proc = spawn(
-      'ffprobe',
+      resolveBinaryPath('ffprobe'),
       [
         '-v',
         'error',
@@ -669,7 +671,7 @@ async function streamViaFfmpegHttp(
       `[FFmpeg] Iniciando em ${startSec}s (${modeLabel}, audio#${audioIndex}) para "${filename}"`
     );
 
-    const proc = spawn('ffmpeg', args, { stdio: ['ignore', 'pipe', 'pipe'] });
+    const proc = spawn(resolveBinaryPath('ffmpeg'), args, { stdio: ['ignore', 'pipe', 'pipe'] });
     activeProc = proc;
 
     proc.stdout.on('data', (chunk: Buffer) => {
@@ -926,7 +928,7 @@ export async function getTorrentSubtitles(
 
   const tracks = await new Promise<EmbeddedSubtitleTrack[]>((resolve) => {
     const proc = spawn(
-      'ffprobe',
+      resolveBinaryPath('ffprobe'),
       [
         '-v',
         'quiet',
@@ -1041,7 +1043,7 @@ export async function extractTorrentSubtitleVtt(
 
   const vtt = await new Promise<string | null>((resolve) => {
     const proc = spawn(
-      'ffmpeg',
+      resolveBinaryPath('ffmpeg'),
       [
         '-nostdin',
         '-hide_banner',

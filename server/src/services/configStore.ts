@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { getDataDir } from '../utils/paths';
 
 export interface StoredAddon {
   url: string;
@@ -23,8 +24,9 @@ export interface PlayHubStoreData {
   updatedAt: number;
 }
 
-const DATA_DIR = path.resolve(__dirname, '../../data');
-const STORE_PATH = path.join(DATA_DIR, 'store.json');
+function getStorePath(): string {
+  return path.join(getDataDir(), 'store.json');
+}
 
 const DEFAULT_STORE: PlayHubStoreData = {
   addons: [],
@@ -36,12 +38,6 @@ const DEFAULT_STORE: PlayHubStoreData = {
   torznab: { url: '', apiKey: '' },
   updatedAt: 0,
 };
-
-function ensureDataDir(): void {
-  if (!fs.existsSync(DATA_DIR)) {
-    fs.mkdirSync(DATA_DIR, { recursive: true });
-  }
-}
 
 export function normalizeManifestUrl(raw: string): string | null {
   const cleaned = raw
@@ -103,13 +99,13 @@ function dedupeUrls(list: string[]): string[] {
 }
 
 export function readStore(): PlayHubStoreData {
-  ensureDataDir();
-  if (!fs.existsSync(STORE_PATH)) {
+  const storePath = getStorePath();
+  if (!fs.existsSync(storePath)) {
     return { ...DEFAULT_STORE };
   }
 
   try {
-    const raw = fs.readFileSync(STORE_PATH, 'utf-8');
+    const raw = fs.readFileSync(storePath, 'utf-8');
     const parsed = JSON.parse(raw) as Partial<PlayHubStoreData>;
     return {
       ...(typeof parsed.tmdbApiKey === 'string' && parsed.tmdbApiKey.trim()
@@ -135,7 +131,7 @@ export function readStore(): PlayHubStoreData {
 }
 
 export function writeStore(data: PlayHubStoreData): PlayHubStoreData {
-  ensureDataDir();
+  const storePath = getStorePath();
   const payload: PlayHubStoreData = {
     ...data,
     addons: dedupeAddons(data.addons),
@@ -143,9 +139,9 @@ export function writeStore(data: PlayHubStoreData): PlayHubStoreData {
     updatedAt: Date.now(),
   };
 
-  const tmpPath = `${STORE_PATH}.tmp`;
+  const tmpPath = `${storePath}.tmp`;
   fs.writeFileSync(tmpPath, JSON.stringify(payload, null, 2), 'utf-8');
-  fs.renameSync(tmpPath, STORE_PATH);
+  fs.renameSync(tmpPath, storePath);
   return payload;
 }
 

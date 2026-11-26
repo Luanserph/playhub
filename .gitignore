@@ -35,6 +35,8 @@ Thumbs.db
 
 # Builds futuros (Desktop Tauri & Android Capacitor)
 src-tauri/target/
+src-tauri/binaries/*.exe
+!src-tauri/binaries/.gitkeep
 android/app/build/
 android/.gradle/
 *.apk

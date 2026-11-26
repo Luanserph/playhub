@@ -7,6 +7,7 @@ import type { FastifyReply, FastifyRequest } from 'fastify';
 import torrentStream from 'torrent-stream';
 import { readStore } from './configStore';
 import { resolveSubtitle, shiftVttByOffset, srtToVtt } from './subtitleService';
+import { getDataDir, resolveBinaryPath } from '../utils/paths';
 
 export type DownloadStatus = 'queued' | 'downloading' | 'paused' | 'completed' | 'error';
 
@@ -107,8 +108,9 @@ const VIDEO_EXTENSIONS = new Set(['.mp4', '.mkv', '.webm', '.avi', '.mov', '.m4v
 const INCOMPATIBLE_CODEC_REGEX =
   /(?:^|[^a-z0-9])(x265|hevc|h\.?265|10bit|ac3|eac3|ddp|dts|dts-hd|truehd|atmos)(?:$|[^a-z0-9])/i;
 
-const DATA_DIR = path.resolve(__dirname, '../../data');
-const DOWNLOADS_DB_PATH = path.join(DATA_DIR, 'downloads.json');
+function getDownloadsDbPath(): string {
+  return path.join(getDataDir(), 'downloads.json');
+}
 
 const downloadsMap = new Map<string, DownloadRecord>();
 const activeJobs = new Map<string, ActiveDownloadJob>();
@@ -120,11 +122,12 @@ let nvencAvailable = false;
 function checkFfmpeg(): { available: boolean; nvenc: boolean } {
   if (ffmpegChecked) return { available: ffmpegAvailable, nvenc: nvencAvailable };
   ffmpegChecked = true;
+  const ffmpegBin = resolveBinaryPath('ffmpeg');
   try {
-    const ver = spawnSync('ffmpeg', ['-version'], { stdio: 'pipe', timeout: 3000 });
+    const ver = spawnSync(ffmpegBin, ['-version'], { stdio: 'pipe', timeout: 3000 });
     if (ver.status === 0 && !ver.error) {
       ffmpegAvailable = true;
-      const enc = spawnSync('ffmpeg', ['-hide_banner', '-encoders'], { stdio: 'pipe', timeout: 3000 });
+      const enc = spawnSync(ffmpegBin, ['-hide_banner', '-encoders'], { stdio: 'pipe', timeout: 3000 });
       nvencAvailable = /\bh264_nvenc\b/.test(enc.stdout?.toString('utf-8') || '');
     }
   } catch {
@@ -159,25 +162,19 @@ export function getResolvedDownloadDir(): string {
   return target;
 }
 
-function ensureDataDir(): void {
-  if (!fs.existsSync(DATA_DIR)) {
-    fs.mkdirSync(DATA_DIR, { recursive: true });
-  }
-}
-
 function persistDownloads(): void {
-  ensureDataDir();
+  const dbPath = getDownloadsDbPath();
   const list = Array.from(downloadsMap.values()).sort((a, b) => b.createdAt - a.createdAt);
-  const tmpPath = `${DOWNLOADS_DB_PATH}.tmp`;
+  const tmpPath = `${dbPath}.tmp`;
   fs.writeFileSync(tmpPath, JSON.stringify(list, null, 2), 'utf-8');
-  fs.renameSync(tmpPath, DOWNLOADS_DB_PATH);
+  fs.renameSync(tmpPath, dbPath);
 }
 
 function loadDownloadsFromDisk(): void {
-  ensureDataDir();
-  if (!fs.existsSync(DOWNLOADS_DB_PATH)) return;
+  const dbPath = getDownloadsDbPath();
+  if (!fs.existsSync(dbPath)) return;
   try {
-    const raw = fs.readFileSync(DOWNLOADS_DB_PATH, 'utf-8');
+    const raw = fs.readFileSync(dbPath, 'utf-8');
     const parsed = JSON.parse(raw) as unknown;
     if (!Array.isArray(parsed)) return;
     for (const item of parsed) {
@@ -629,7 +626,7 @@ export function streamOfflineDownload(
         'pipe:1'
       );
 
-      const proc = spawn('ffmpeg', args, { stdio: ['ignore', 'pipe', 'pipe'] });
+      const proc = spawn(resolveBinaryPath('ffmpeg'), args, { stdio: ['ignore', 'pipe', 'pipe'] });
       request.raw.on('close', () => {
         try {
           proc.kill('SIGKILL');

@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "build": "tsc",
+    "build:sidecar": "node scripts/build-sidecar.mjs",
     "start": "node dist/index.js"
   },
   "keywords": [],
@@ -18,6 +19,8 @@
   },
   "devDependencies": {
     "@types/node": "^26.6.11",
+    "esbuild": "^0.28.2",
+    "postject": "^1.0.0-alpha.6",
     "tsx": "^4.23.15",
     "typescript": "^7.0.2"
   }
