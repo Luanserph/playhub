@@ -1,90 +1,151 @@
-<p align="center">
-  <img src="./public/favicon.svg" alt="PlayHub" width="76" height="76" />
-</p>
+<div align="center">
 
-<h1 align="center">PlayHub</h1>
+<img src="public/app-icon.png" alt="PlayHub" width="96" />
 
-<p align="center">
-  Catálogo editorial limpo e reprodução instantânea de filmes e séries, unindo a praticidade do <code>imdb.su</code> com um player nativo e experiência de cinema em casa.
-</p>
+# PlayHub
 
-<p align="center">
-  <img src="https://img.shields.io/badge/status-em%20desenvolvimento%20ativo-18181B?style=flat-square" alt="Em desenvolvimento ativo" />
-  <img src="https://img.shields.io/badge/React%20%2B%20Fastify-TypeScript-27272A?style=flat-square" alt="React + Fastify TypeScript" />
-</p>
+**Catálogo limpo, reprodução instantânea e experiência de cinema no seu PC.**
 
-> **Aviso:** o PlayHub está em **desenvolvimento ativo**, recebendo melhorias frequentes na interface, fontes e player — e em breve ganhará builds instaláveis para Windows e Android.
+[![Versão](https://img.shields.io/github/v/release/Luanserph/playhub?style=flat-square&label=vers%C3%A3o&color=18181b&labelColor=09090b)](https://github.com/Luanserph/playhub/releases/latest)
+[![Plataforma](https://img.shields.io/badge/Windows-10%20%2F%2011-18181b?style=flat-square&logo=windows&logoColor=fafafa&labelColor=09090b)](https://github.com/Luanserph/playhub/releases/latest)
+[![Stack](https://img.shields.io/badge/Tauri%20v2-React%20%2B%20Node%20SEA-18181b?style=flat-square&logo=tauri&logoColor=fafafa&labelColor=09090b)](#por-baixo-dos-panos)
+[![Status](https://img.shields.io/badge/status-em%20desenvolvimento%20ativo-27272a?style=flat-square&labelColor=09090b)](#roadmap)
 
----
+<br />
 
-## O que o PlayHub faz hoje
+**[Baixar instalador para Windows (`.exe`)](https://github.com/Luanserph/playhub/releases/latest)** &nbsp;·&nbsp; [O que ele faz](#o-que-o-playhub-entrega) &nbsp;·&nbsp; [Atalhos](#atalhos-do-teclado) &nbsp;·&nbsp; [Rodar localmente](#para-desenvolvedores)
 
-- **Catálogo TMDB completo com proxy e cache local:** carrega filmes, séries, detalhes em tela cheia (com slideshow de backdrops, logo oficial, elenco, ficha técnica, temporadas/episódios e títulos semelhantes) usando proxy server-side (`/api/tmdb` e `/api/tmdb-image`) com cache em memória e fallback automático.
-- **Busca Spotlight (`Ctrl+K`):** pesquise instantaneamente por nome ou cole direto um link/ID do IMDb (ex: `tt0371746`).
-- **Player Nativo + Modo Híbrido (`imdb.su`):**
-  - Reprodução P2P local com `torrent-stream` + remux/transcode inteligente via FFmpeg (com suporte a NVENC quando disponível), seek rápido e controle de **Proporção de Tela** (`Ajustar`, `Preencher`, `Esticar`, `16:9`, `4:3`, `21:9`).
-  - Alternância com 1 clique para o modo **Embed (`imdb.su`)** quando preferir iniciar sem esperar peers.
-  - **Up Next automático** nos últimos 30 segundos de episódios de séries.
-- **Legendas Multi-Fonte e Upload Local:**
-  - Busca paralela no **OpenSubtitles**, **Wyzie Subs** e faixas **embutidas no próprio MKV/MP4** (extraídas sob demanda via `ffprobe`/`ffmpeg`).
-  - Separação estrita entre **PT-BR** real (`pob`/`pt-br`) e **PT-PT** (`por`), com tradução automática **IA PT-BR** quando não houver legenda brasileira nativa.
-  - Suporte a upload próprio e arrastar-e-soltar (`.srt`, `.vtt` e `.ass`), ajuste de tamanho (`P` / `M` / `G`) e sincronia (`-0.5s` / `+0.5s`).
-- **Dublagem Neural opcional (Edge-TTS):** sintetiza falas a partir da legenda ativa com redução suave do áudio original (audio ducking) e pré-carregamento.
-- **Player Externo (VLC / MPV):** baixa um arquivo `playhub-stream.m3u` apontando direto para o stream bruto (`/api/torrent-raw`), copia o link do vídeo ou exporta a legenda ativa em `.srt`.
-- **Downloads e Biblioteca Offline (com legenda PT-BR automática):** baixe filmes e episódios direto para a sua pasta local (com pausa, retomada real por peças verificadas, download automático da legenda `PT-BR` junto ao vídeo e reprodução 100% offline com suporte a `Range`/FFmpeg).
-- **Sincronização e Backup JSON:** listas, histórico ("Continuar Assistindo" em 16:9), notas, preferências e add-ons sincronizam localmente e podem ser exportados/importados em JSON.
+</div>
 
 ---
 
-## Atalhos do Player
+> **Projeto em evolução constante:** o PlayHub nasceu para unir a praticidade de abrir um filme ou série em segundos com uma interface limpa — sem anúncios, sem poluição visual e sem precisar configurar terminal. Novas versões, melhorias no player e ajustes de interface chegam com frequência.
 
-| Tecla | Ação |
+<!--
+Dica: depois de tirar 2 ou 3 prints do app rodando, salve em docs/screenshots/ e descomente a linha abaixo:
+<p align="center">
+  <img src="docs/screenshots/home.png" alt="Tela inicial do PlayHub" width="100%" />
+</p>
+-->
+
+## Instalação rápida no Windows
+
+Nada de instalar Node.js, configurar FFmpeg ou abrir linha de comando. O instalador já embute tudo e roda sem pedir senha de administrador.
+
+1. Acesse a aba **[Releases](https://github.com/Luanserph/playhub/releases/latest)** e baixe o arquivo **`PlayHub_0.2.0_x64-setup.exe`**.
+2. Execute o instalador e abra o **PlayHub** pelo menu Iniciar.
+3. Na primeira abertura, o guia inicial pede apenas sua **chave gratuita da API do TMDB** — cole, clique em **Testar e Salvar** e o catálogo carrega na hora.
+
+---
+
+## O que o PlayHub entrega
+
+<table>
+  <tr>
+    <td width="50%" valign="top">
+      <h3>Catálogo editorial & descoberta</h3>
+      <ul>
+        <li><strong>Visual limpo:</strong> inspirado em Apple TV+ e MUBI, com <strong>Ambilight sutil</strong> nos cards e trilho <em>Continuar Assistindo</em> em widescreen (16:9).</li>
+        <li><strong>Detalhes em tela cheia:</strong> slideshow de banners oficiais, elenco, ficha técnica, títulos semelhantes e barra de temporadas com fundo temático legível.</li>
+        <li><strong>Busca Spotlight (<kbd>Ctrl</kbd> + <kbd>K</kbd>):</strong> encontre por nome ou cole direto um link/ID do IMDb (ex: <code>tt0371746</code>).</li>
+        <li><strong>Imune a bloqueios de rede:</strong> proxy e cache local para dados e imagens do TMDB.</li>
+      </ul>
+    </td>
+    <td width="50%" valign="top">
+      <h3>Player Nativo + Modo Híbrido</h3>
+      <ul>
+        <li><strong>Reprodução P2P local:</strong> motor próprio com remux/transcode via FFmpeg (com aceleração NVENC quando disponível) e avanço rápido na barra de tempo.</li>
+        <li><strong>Proporção de tela sob medida:</strong> alterne entre <em>Ajustar</em>, <em>Preencher</em>, <em>Esticar</em>, <code>16:9</code>, <code>4:3</code> e <code>21:9</code> direto no player.</li>
+        <li><strong>Modo Embed (<code>imdb.su</code>):</strong> alterne com 1 clique quando quiser começar na hora sem esperar peers.</li>
+        <li><strong>Up Next & Player Externo:</strong> pula para o próximo episódio automaticamente e permite abrir o stream bruto direto no <strong>VLC / MPV</strong> (<code>.m3u</code>).</li>
+      </ul>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top">
+      <h3>Legendas PT-BR de verdade</h3>
+      <ul>
+        <li><strong>Busca em 3 camadas:</strong> extrai faixas embutidas no próprio MKV/MP4 e pesquisa em paralelo no <strong>OpenSubtitles</strong> e <strong>Wyzie Subs</strong>.</li>
+        <li><strong><code>PT-BR</code> separado de <code>PT-PT</code>:</strong> prioriza português brasileiro real e traduz automaticamente por IA quando só houver legenda em outro idioma.</li>
+        <li><strong>Controle total:</strong> arraste seu próprio <code>.srt</code>, <code>.vtt</code> ou <code>.ass</code> para o player, ajuste tamanho (<code>P</code>/<code>M</code>/<code>G</code>) e sincronia em tempo real.</li>
+        <li><strong>Dublagem Neural (experimental):</strong> síntese de voz via Edge-TTS com redução suave do áudio original.</li>
+      </ul>
+    </td>
+    <td width="50%" valign="top">
+      <h3>Add-ons, Downloads & Modo Offline</h3>
+      <ul>
+        <li><strong>Catálogo de Add-ons integrado:</strong> instale com 1 clique <strong>Torrentio</strong>, <strong>Comet</strong>, <strong>MediaFusion</strong>, <strong>Brazuca Torrents</strong>, <strong>Peerflix</strong> e <strong>OpenSubtitles v3</strong> (ou cole links <code>stremio://</code>).</li>
+        <li><strong>Biblioteca Offline:</strong> baixe filmes e episódios em segundo plano (com pausa e retomada real) direto para <code>Downloads\PlayHub</code>.</li>
+        <li><strong>Legenda pronta no disco:</strong> o arquivo <code>.pt-br.srt</code> é salvo junto com o vídeo automaticamente para assistir sem internet.</li>
+        <li><strong>Backup simples:</strong> exporte e importe histórico, listas, preferências e add-ons em um único JSON.</li>
+      </ul>
+    </td>
+  </tr>
+</table>
+
+---
+
+## Atalhos do teclado
+
+| Atalho | Ação |
 | :---: | :--- |
-| `Espaço` / `K` | Pausar ou continuar |
-| `←` / `→` | Voltar ou avançar 10 segundos |
-| `A` | Alternar proporção de tela (Aspect Ratio) |
-| `C` | Ligar ou desligar legendas |
-| `G` / `H` | Ajustar delay da legenda (`-0.5s` / `+0.5s`) |
-| `M` | Silenciar / ativar som |
-| `F` | Tela cheia |
-| `Esc` | Fechar popover ou sair do player |
+| <kbd>Ctrl</kbd> + <kbd>K</kbd> | Abrir busca rápida (Spotlight / ID do IMDb) |
+| <kbd>Espaço</kbd> ou <kbd>K</kbd> | Pausar ou retomar |
+| <kbd>←</kbd> / <kbd>→</kbd> | Voltar ou avançar 10 segundos |
+| <kbd>A</kbd> | Alternar proporção de tela (*Aspect Ratio*) |
+| <kbd>C</kbd> | Ligar ou desligar legendas |
+| <kbd>G</kbd> / <kbd>H</kbd> | Ajustar atraso da legenda (`-0.5s` / `+0.5s`) |
+| <kbd>M</kbd> | Silenciar ou ativar som |
+| <kbd>F</kbd> | Entrar ou sair da tela cheia |
+| <kbd>Esc</kbd> | Fechar menus ou sair do player |
 
 ---
 
-## Como rodar localmente
+## Roadmap
 
-Você só precisa do **Node.js 20+** instalado (e `ffmpeg` no PATH caso queira remux/transcode de MKV e extração de legendas embutidas).
+- [x] **Instalador Windows Tudo-em-Um (v0.2.0):** empacotamento nativo via Tauri v2 com servidor local, FFmpeg e FFprobe embutidos.
+- [x] **Downloads e Biblioteca Offline:** gerenciador em segundo plano com legenda `PT-BR` automática.
+- [x] **Catálogo de Add-ons nativo:** ativação em 1 clique dos principais provedores comunitários.
+- [ ] **Atualizações automáticas no desktop:** aviso e update direto dentro do aplicativo.
+- [ ] **Versão Android (APK):** experiência dedicada para celular, tablet e transmissão na TV.
+- [ ] **Mais fontes e refinamentos:** melhorias contínuas na detecção de faixas de áudio/legenda e polimento da interface.
 
-### 1. Instale as dependências (frontend e backend)
+---
+
+## Para desenvolvedores
+
+<details>
+<summary><strong>Por baixo dos panos (Arquitetura)</strong></summary>
+
+<br />
+
+- **Frontend:** React, TypeScript, Vite, Tailwind CSS e Framer Motion.
+- **Desktop:** Tauri v2 (Rust) com inicialização e encerramento automático dos processos em segundo plano, gravando configurações em `%APPDATA%\PlayHub`.
+- **Backend Sidecar:** servidor Fastify (`server/`) compilado em executável único via **Node.js SEA (Single Executable Application)** + `esbuild` + `postject`, acompanhado pelos binários de `ffmpeg` e `ffprobe`.
+- **Build & Release:** pipeline automatizado no **GitHub Actions** gerando o instalador NSIS `.exe` a cada tag `v*`.
+
+</details>
+
+### Rodando em modo de desenvolvimento
+
+Pré-requisitos: **Node.js 22+** (e `ffmpeg`/`ffprobe` no `PATH` para remux de MKV e extração de legendas embutidas).
 
 ```bash
+# 1. Instale as dependências do frontend e do backend
 npm install
-cd server && npm install && cd ..
-```
+npm --prefix server install
 
-### 2. Inicie o backend e o frontend
+# 2. Suba o servidor local ([http://127.0.0.1:3001](http://127.0.0.1:3001))
+npm --prefix server run dev
 
-Em um terminal, suba o servidor local (`http://127.0.0.1:3001`):
-
-```bash
-cd server
+# 3. Em outro terminal, inicie a interface web (http://localhost:5173)
 npm run dev
 ```
 
-Em outro terminal, suba a interface web (`http://localhost:5173`):
-
-```bash
-npm run dev
-```
-
-### 3. Conecte sua chave gratuita do TMDB
-
-Não é necessário editar arquivos `.env`. Ao abrir o PlayHub pela primeira vez, o **Guia Inicial** aparece automaticamente: basta colar sua **API Key (v3)** ou **Token de Leitura (v4)** do TMDB e clicar em **Testar e Salvar** — o catálogo carrega na hora.
+*(Não é preciso configurar `.env` manualmente — a chave do TMDB é informada pela própria interface na primeira execução.)*
 
 ---
 
-## Próximos passos (Roadmap)
-
-- [ ] **Instalador Windows Tudo-em-Um (Tauri `.exe`):** app desktop nativo empacotando interface, servidor local e FFmpeg — sem precisar instalar Node ou configurar nada manualmente.
-- [ ] **App Android (APK):** versão mobile dedicada para assistir na palma da mão ou transmitir na TV.
-- [ ] **Mais fontes e refinamentos:** novos provedores, melhorias contínuas na detecção de faixas e ajustes finos na interface.
+<div align="center">
+  <sub>Feito para quem gosta de cinema em casa sem complicação. Sugestões, ideias e relatos de bugs são sempre bem-vindos.</sub>
+</div>
