@@ -114,9 +114,12 @@ jobs:
           fi
           echo "Using build-tools: $BUILD_TOOLS"
 
-          RAW_APK=$(find src-tauri/gen/android/app/build/outputs/apk/arm64/release -maxdepth 2 -name "*.apk" | head -n 1)
+          echo "=== APKs encontrados em outputs/apk ==="
+          find src-tauri/gen/android/app/build/outputs/apk -type f -name "*.apk" || true
+
+          RAW_APK=$(find src-tauri/gen/android/app/build/outputs/apk -type f -name "*release*.apk" | head -n 1)
           if [ -z "$RAW_APK" ]; then
-            echo "APK release não encontrado em src-tauri/gen/android/app/build/outputs/apk/arm64/release/" >&2
+            echo "APK release não encontrado em src-tauri/gen/android/app/build/outputs/apk/" >&2
             exit 1
           fi
           echo "Found raw APK: $RAW_APK"
