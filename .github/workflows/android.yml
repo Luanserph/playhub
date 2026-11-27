@@ -53,17 +53,28 @@ jobs:
       - name: Install frontend dependencies
         run: npm install
 
-      - name: Initialize Tauri Android project and enable cleartext traffic
+      - name: Initialize Tauri Android project
         run: |
           if [ ! -d "src-tauri/gen/android" ]; then
             npx tauri android init --ci
           fi
 
-          MANIFEST="src-tauri/gen/android/app/src/main/AndroidManifest.xml"
-          if [ -f "$MANIFEST" ] && ! grep -q 'android:usesCleartextTraffic="true"' "$MANIFEST"; then
-            sed -i 's/<application/<application android:usesCleartextTraffic="true"/' "$MANIFEST"
-          fi
-          grep -n 'usesCleartextTraffic' "$MANIFEST" || true
+      - name: Configurar usesCleartextTraffic com segurança
+        shell: bash
+        run: |
+          node -e '
+            const fs = require("fs");
+            const p = "src-tauri/gen/android/app/src/main/AndroidManifest.xml";
+            let xml = fs.readFileSync(p, "utf8");
+            if (/android:usesCleartextTraffic\s*=\s*"[^"]*"/.test(xml)) {
+              xml = xml.replace(/android:usesCleartextTraffic\s*=\s*"[^"]*"/g, "android:usesCleartextTraffic=\"true\"");
+            } else {
+              xml = xml.replace(/<application\b/, "<application\n        android:usesCleartextTraffic=\"true\"");
+            }
+            fs.writeFileSync(p, xml, "utf8");
+            console.log("=== AndroidManifest.xml final ===");
+            console.log(xml);
+          '
 
       - name: Build Android APK (aarch64 debug)
         run: npx tauri android build --apk --target aarch64 --debug
