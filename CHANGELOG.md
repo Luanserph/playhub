@@ -5,6 +5,28 @@ Todas as mudanças notáveis neste projeto serão documentadas neste arquivo.
 O formato é baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/),
 e este projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
+## [0.2.0] - 2026-11-26
+
+### Adicionado
+- **Instalador Windows autossuficiente (NSIS / Tauri v2)**:
+  - Empacota o servidor local (`playhub-server`), `ffmpeg` e `ffprobe`, iniciando sem janela de console (`CREATE_NO_WINDOW`) com logs em `%APPDATA%\...\server.log` e encerrando toda a árvore de processos ao fechar o app.
+  - Smoke test automático do sidecar (`/api/health`) no workflow de Release do GitHub Actions antes de gerar o instalador.
+- **Catálogo TMDB completo + Proxy local**:
+  - Tela de detalhes Full-View com slideshow, elenco, barra de temporadas temática e efeito Ambilight nos cards.
+  - Proxy server-side para API e imagens do TMDB.
+- **Player Híbrido e Nativo aprimorado**:
+  - Controle de proporção de tela (`16:9`, `4:3`, `21:9`, Preencher e Esticar) e envio para players externos VLC/MPV (`.m3u`).
+- **Legendas PT-BR inteligentes**:
+  - Separação entre `PT-BR` e `PT-PT`, extração de legendas embutidas em MKV, busca multi-fonte, tradução automática e upload de arquivos `.srt`/`.ass`.
+- **Downloads e Modo Offline**:
+  - Download de filmes e episódios com legenda `PT-BR` salva automaticamente em `Downloads\PlayHub` para reprodução sem internet.
+- **Catálogo de Add-ons integrado**:
+  - Lista curada embutida com instalação em 1 clique para **Torrentio**, **Comet**, **MediaFusion**, **Brazuca Torrents**, **Peerflix** e **OpenSubtitles v3**, mesclada com o diretório comunitário via backend.
+
+### Corrigido
+- Links externos (`IMDb`, `TMDB`, etc.) agora abrem no navegador padrão do Windows dentro do WebView2 do Tauri (`@tauri-apps/plugin-shell` + interceptador global).
+- Padronização de todas as chamadas da API local para `http://127.0.0.1:3001` com retry automático (3 tentativas × 1s) durante a inicialização do sidecar.
+
 ## [0.1.0] - 2026-11-26
 
 ### Adicionado

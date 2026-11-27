@@ -96,7 +96,23 @@ jobs:
         with:
           tagName: v__VERSION__
           releaseName: 'PlayHub v__VERSION__'
-          releaseBody: 'Instalador Windows Tudo-em-Um (NSIS) com servidor local, FFmpeg e FFprobe embutidos.'
+          releaseBody: |
+            ### Primeira versão instalável para Windows (Tudo-em-Um)
+
+            Instalação em dois cliques, sem precisar configurar Node.js, FFmpeg ou rodar comandos no terminal.
+
+            **O que vem na v__VERSION__:**
+            - **Instalador Windows autossuficiente (NSIS):** embute o servidor local (`playhub-server`), `ffmpeg` e `ffprobe`, iniciando e encerrando tudo automaticamente com a janela do app.
+            - **Catálogo TMDB completo + Proxy local:** busca rápida, tela de detalhes Full-View com slideshow, elenco, barra de temporadas temática e efeito Ambilight nos cards.
+            - **Player Híbrido e Nativo:** reprodução via `imdb.su` ou torrents (`torrent-stream` + FFmpeg/NVENC), controle de proporção de tela (`16:9`, `4:3`, `21:9`, Preencher e Esticar) e envio para VLC/MPV (`.m3u`).
+            - **Legendas PT-BR inteligentes:** separação entre `PT-BR` e `PT-PT`, extração de legendas embutidas em MKV, busca multi-fonte, tradução automática e upload de `.srt`/`.ass`.
+            - **Downloads e Modo Offline:** baixe filmes e episódios com legenda `PT-BR` salva automaticamente na pasta `Downloads\PlayHub` para assistir sem internet.
+            - **Catálogo de Add-ons integrado:** instalação com 1 clique para Torrentio, Comet, MediaFusion, Brazuca Torrents, Peerflix e OpenSubtitles v3.
+
+            **Como instalar:**
+            1. Baixe o arquivo `PlayHub___VERSION___x64-setup.exe` em **Assets** abaixo.
+            2. Execute o instalador (não exige permissão de administrador).
+            3. Na primeira abertura, informe sua chave gratuita da API do TMDB no assistente inicial.
           releaseDraft: true
           prerelease: false
 
