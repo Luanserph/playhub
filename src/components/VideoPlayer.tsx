@@ -224,6 +224,7 @@ export function VideoPlayer({
 
   // Controles e popovers
   const [controlsVisible, setControlsVisible] = useState(true);
+  const [topBarHovered, setTopBarHovered] = useState(false);
   const [activePopover, setActivePopover] = useState<PopoverType>(null);
 
   // Áudio, legendas e dublagem neural
@@ -287,15 +288,43 @@ export function VideoPlayer({
       : baseSubtitleUrl
     : null;
 
-  const externalStreamUrl = activeStream
+  const sanitizeExternalHttpUrl = (raw: string): string | null => {
+    const trimmed = raw.trim();
+    if (!/^https?:\/\//i.test(trimmed)) return null;
+    try {
+      const parsed = new URL(trimmed);
+      if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return null;
+      parsed.hash = '';
+      return parsed.toString();
+    } catch {
+      return null;
+    }
+  };
+
+  const directHttpExternalUrl = activeStream
     ? activeStream.sourceType === 'torrent' && activeStream.infoHash
       ? hasBackendServer()
-        ? `${getApiBaseUrl() || API_BASE_URL}/api/torrent-raw/${encodeURIComponent(activeStream.infoHash)}/${encodeURIComponent(String(activeStream.fileIdx ?? 'auto'))}`
-        : activeStream.url.startsWith('magnet:')
+        ? sanitizeExternalHttpUrl(
+            `${getApiBaseUrl() || API_BASE_URL}/api/torrent-raw/${encodeURIComponent(activeStream.infoHash)}/${encodeURIComponent(String(activeStream.fileIdx ?? 'auto'))}`
+          )
+        : sanitizeExternalHttpUrl(activeStream.url)
+      : sanitizeExternalHttpUrl(activeStream.url)
+    : null;
+
+  const externalStreamUrl = activeStream
+    ? directHttpExternalUrl ??
+      (activeStream.sourceType === 'torrent' && activeStream.infoHash
+        ? activeStream.url.startsWith('magnet:')
           ? activeStream.url
           : `magnet:?xt=urn:btih:${activeStream.infoHash}&dn=${encodeURIComponent(request.title)}`
-      : activeStream.url
+        : activeStream.url)
     : null;
+
+  const isMagnetOnlyAndroidStandalone =
+    isAndroidStandalone &&
+    !directHttpExternalUrl &&
+    Boolean(externalStreamUrl && externalStreamUrl.startsWith('magnet:'));
+
   const isTouch = isTouchDevice();
   const isUnsupportedStandaloneSource =
     isAndroidStandalone &&
@@ -339,6 +368,7 @@ export function VideoPlayer({
         setIsBuffering(false);
         setPlayerMode('embed');
         setPhase('ready');
+        setControlsVisible(true);
       } else {
         setPlayerMode('native');
         if (streams.length === 0) {
@@ -442,6 +472,24 @@ export function VideoPlayer({
     },
     [onChangeSubtitleSize, showOsd]
   );
+
+  const handleOpenExternalPlayer = useCallback(() => {
+    setActivePopover(null);
+    if (isAndroidStandalone) {
+      if (directHttpExternalUrl) {
+        void openExternalUrl(directHttpExternalUrl);
+        return;
+      }
+      setEmbedNotice(
+        'Links magnet: exigem um cliente torrent no Android (o VLC não abre magnet:). Use o modo Embed (imdb.su) ou configure um Servidor LAN.'
+      );
+      return;
+    }
+
+    const targetUrl = directHttpExternalUrl || externalStreamUrl;
+    if (!targetUrl) return;
+    void openExternalUrl(targetUrl);
+  }, [isAndroidStandalone, directHttpExternalUrl, externalStreamUrl]);
 
   const handleDownloadExternalM3u = useCallback(() => {
     if (!externalStreamUrl) return;
@@ -1289,22 +1337,38 @@ export function VideoPlayer({
     dubbingRef.current?.setDubVolume(dubVolume);
   }, [dubVolume]);
 
-  // 5. Auto-ocultação dos controles após 3s de inatividade
-  const showControls = controlsVisible || !isPlaying || activePopover !== null;
+  // 5. Auto-ocultação dos controles e barra superior após 3s de inatividade (inclusive no modo Embed)
+  const canAutoHideControls =
+    phase !== 'error' &&
+    phase !== 'empty' &&
+    !isUnsupportedStandaloneSource &&
+    activePopover === null &&
+    !topBarHovered &&
+    (playerMode === 'embed' ? phase === 'ready' : isPlaying);
+
+  const showTopBar =
+    phase === 'error' ||
+    isUnsupportedStandaloneSource ||
+    activePopover !== null ||
+    topBarHovered ||
+    (playerMode === 'embed' ? controlsVisible : controlsVisible || !isPlaying);
+
+  const showControls =
+    controlsVisible || !isPlaying || activePopover !== null || topBarHovered;
 
   const scheduleControlsHide = useCallback(() => {
     setControlsVisible(true);
     if (hideTimerRef.current) window.clearTimeout(hideTimerRef.current);
-    if (isPlaying && activePopover === null) {
+    if (canAutoHideControls) {
       hideTimerRef.current = window.setTimeout(() => {
         setControlsVisible(false);
       }, CONTROLS_HIDE_MS);
     }
-  }, [isPlaying, activePopover]);
+  }, [canAutoHideControls]);
 
   useEffect(() => {
     if (hideTimerRef.current) window.clearTimeout(hideTimerRef.current);
-    if (isPlaying && activePopover === null) {
+    if (canAutoHideControls) {
       hideTimerRef.current = window.setTimeout(() => {
         setControlsVisible(false);
       }, CONTROLS_HIDE_MS);
@@ -1312,7 +1376,7 @@ export function VideoPlayer({
     return () => {
       if (hideTimerRef.current) window.clearTimeout(hideTimerRef.current);
     };
-  }, [isPlaying, activePopover]);
+  }, [canAutoHideControls, playerMode, phase]);
 
   // Fullscreen listener
   useEffect(() => {
@@ -1653,9 +1717,22 @@ export function VideoPlayer({
           </div>
         </div>
       )}
+      {/* Faixa invisível fixa no topo para reexibir a barra superior (inclusive sobre o iframe do Embed) */}
+      {phase !== 'empty' && (
+        <div
+          onMouseEnter={scheduleControlsHide}
+          onTouchStart={scheduleControlsHide}
+          onClick={scheduleControlsHide}
+          style={{ top: 'var(--safe-top, 0px)' }}
+          className={`fixed left-0 right-0 z-40 h-6 ${
+            showTopBar ? 'pointer-events-none' : 'pointer-events-auto'
+          }`}
+        />
+      )}
+
       {/* Mídia: Vídeo Nativo ou Embed (imdb.su) */}
       {playerMode === 'embed' ? (
-        <div className="relative h-full w-full bg-black pt-16">
+        <div className="relative h-full w-full bg-black">
           <iframe
             key={`${embedUrl}-${blockPopups ? 'sandboxed' : 'free'}`}
             src={embedUrl}
@@ -1938,15 +2015,29 @@ export function VideoPlayer({
                   <span>Abrir no Embed (imdb.su)</span>
                 </button>
 
-                {externalStreamUrl && (
+                {directHttpExternalUrl ? (
                   <button
                     type="button"
-                    onClick={() => void openExternalUrl(externalStreamUrl)}
+                    onClick={handleOpenExternalPlayer}
                     className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-xl border border-white/[0.12] bg-[#18181B] px-5 text-sm font-medium text-[#FAFAFA] transition-colors hover:bg-white/[0.08]"
                   >
                     <ExternalLink className="h-4 w-4" />
-                    <span>Abrir link Magnet em App Externo</span>
+                    <span>Abrir no VLC / Player Externo</span>
                   </button>
+                ) : (
+                  <div className="rounded-xl border border-amber-500/25 bg-amber-500/10 px-3.5 py-2.5 text-left text-xs leading-relaxed text-amber-200/90">
+                    Esta fonte possui apenas link <span className="font-mono">magnet:</span>, que não é suportado diretamente pelo VLC no Android. Use o modo <strong>Embed (imdb.su)</strong> acima, configure um Servidor LAN ou copie o link para um cliente torrent.
+                    {externalStreamUrl && (
+                      <button
+                        type="button"
+                        onClick={() => void handleCopyStreamLink()}
+                        className="mt-2 inline-flex items-center gap-1.5 font-medium text-white underline underline-offset-2"
+                      >
+                        <Copy className="h-3.5 w-3.5" />
+                        <span>{copiedStreamLink ? 'Link magnet copiado!' : 'Copiar link magnet'}</span>
+                      </button>
+                    )}
+                  </div>
                 )}
 
                 {onOpenSettings && (
@@ -2054,26 +2145,27 @@ export function VideoPlayer({
         )}
       </AnimatePresence>
 
-      {/* Camada de Controles (barra superior sempre acessível em erro/embed; no Nativo normal oculta após 3s) */}
-      <AnimatePresence>
-        {(playerMode === 'embed' ||
-          phase === 'error' ||
-          (showControls && phase !== 'empty')) && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.2 }}
-            className="pointer-events-none absolute inset-0 z-40 flex flex-col justify-between"
+      {/* Camada de Controles (barra superior com auto-hide suave após 3s, inclusive no modo Embed) */}
+      {phase !== 'empty' && (
+        <div className="pointer-events-none absolute inset-0 z-40 flex flex-col justify-between">
+          {/* Barra superior */}
+          <div
+            onMouseEnter={() => {
+              setTopBarHovered(true);
+              setControlsVisible(true);
+              if (hideTimerRef.current) window.clearTimeout(hideTimerRef.current);
+            }}
+            onMouseLeave={() => setTopBarHovered(false)}
+            className={`flex flex-wrap items-center justify-between gap-3 px-4 transition-all duration-300 ease-out sm:px-8 ${
+              showTopBar
+                ? 'pointer-events-auto translate-y-0 opacity-100'
+                : 'pointer-events-none -translate-y-full opacity-0'
+            } ${
+              playerMode === 'embed' || phase === 'error' || isUnsupportedStandaloneSource
+                ? 'min-h-16 border-b border-white/[0.08] bg-[#09090B]/95 pb-2.5 pt-[calc(var(--safe-top,0px)+10px)] backdrop-blur-md'
+                : 'bg-gradient-to-b from-black/80 via-black/40 to-transparent pb-10 pt-[calc(var(--safe-top,0px)+16px)]'
+            }`}
           >
-            {/* Barra superior */}
-            <div
-              className={`pointer-events-auto flex flex-wrap items-center justify-between gap-3 px-4 sm:px-8 ${
-                playerMode === 'embed' || phase === 'error' || isUnsupportedStandaloneSource
-                  ? 'min-h-16 border-b border-white/[0.08] bg-[#09090B]/95 pb-2.5 pt-[calc(var(--safe-top)+10px)] backdrop-blur-md'
-                  : 'bg-gradient-to-b from-black/80 via-black/40 to-transparent pb-10 pt-[calc(var(--safe-top)+16px)]'
-              }`}
-            >
               <div className="flex min-w-0 items-center gap-3">
                 <button
                   type="button"
@@ -2249,23 +2341,35 @@ export function VideoPlayer({
                             Player Externo (VLC / MPV)
                           </p>
                           <div className="space-y-1">
-                            <button
-                              type="button"
-                              onClick={() => {
-                                if (!externalStreamUrl) return;
-                                setActivePopover(null);
-                                void openExternalUrl(externalStreamUrl);
-                              }}
-                              className="flex min-h-11 w-full items-center gap-2.5 rounded-xl px-2.5 py-2 text-left text-xs font-medium text-white transition-colors hover:bg-white/10"
-                            >
-                              <ExternalLink className="h-3.5 w-3.5 shrink-0 text-white/75" />
-                              <div>
-                                <p>Abrir no Player Externo</p>
-                                <p className="text-[10px] font-normal text-white/50">
-                                  VLC / MPV / TorrServe
+                            {isMagnetOnlyAndroidStandalone ? (
+                              <div className="rounded-xl border border-amber-500/25 bg-amber-500/10 p-2.5 text-[11px] leading-relaxed text-amber-200/95">
+                                <p>
+                                  Links <span className="font-mono">magnet:</span> exigem um cliente torrent no Android (o VLC não abre magnet diretamente).
                                 </p>
+                                <button
+                                  type="button"
+                                  onClick={() => handleSwitchMode('embed')}
+                                  className="mt-2 inline-flex h-8 w-full items-center justify-center gap-1.5 rounded-lg bg-white px-2.5 text-[11px] font-semibold text-zinc-950 transition-colors hover:bg-zinc-200"
+                                >
+                                  <Play className="h-3 w-3 fill-zinc-950" />
+                                  <span>Alternar para Embed (imdb.su)</span>
+                                </button>
                               </div>
-                            </button>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={handleOpenExternalPlayer}
+                                className="flex min-h-11 w-full items-center gap-2.5 rounded-xl px-2.5 py-2 text-left text-xs font-medium text-white transition-colors hover:bg-white/10"
+                              >
+                                <ExternalLink className="h-3.5 w-3.5 shrink-0 text-white/75" />
+                                <div>
+                                  <p>Abrir no Player Externo</p>
+                                  <p className="text-[10px] font-normal text-white/50">
+                                    {isAndroidStandalone ? 'VLC / MPV (HTTP direto)' : 'VLC / MPV / TorrServe'}
+                                  </p>
+                                </div>
+                              </button>
+                            )}
 
                             {!isTouch && (
                               <button
@@ -2369,8 +2473,12 @@ export function VideoPlayer({
             </div>
 
             {/* Controles inferiores e popovers (somente no modo Player Nativo) */}
-            {playerMode === 'native' && (
-            <div className="pointer-events-auto relative mt-auto flex flex-col bg-gradient-to-t from-black/90 via-black/55 to-transparent px-5 pb-5 pt-14 sm:px-8 sm:pb-7">
+            {playerMode === 'native' && phase !== 'error' && (
+            <div
+              className={`relative mt-auto flex flex-col bg-gradient-to-t from-black/90 via-black/55 to-transparent px-5 pb-5 pt-14 transition-opacity duration-200 sm:px-8 sm:pb-7 ${
+                showControls ? 'pointer-events-auto opacity-100' : 'pointer-events-none opacity-0'
+              }`}
+            >
               <AnimatePresence>
                 {activePopover && activePopover !== 'external' && (
                   <motion.div
@@ -2948,9 +3056,8 @@ export function VideoPlayer({
               </div>
             </div>
             )}
-          </motion.div>
-        )}
-      </AnimatePresence>
+        </div>
+      )}
     </motion.div>
   );
 }
