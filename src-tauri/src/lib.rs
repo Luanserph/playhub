@@ -75,11 +75,23 @@ fn terminate_server_process(mut child: Child) {
     let _ = child.wait();
 }
 
+#[tauri::command]
+fn stop_server_for_update(state: tauri::State<'_, ServerChild>) {
+    if let Ok(mut guard) = state.0.lock() {
+        if let Some(child) = guard.take() {
+            terminate_server_process(child);
+        }
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_process::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(ServerChild(Mutex::new(None)))
+        .invoke_handler(tauri::generate_handler![stop_server_for_update])
         .setup(|app| {
             if cfg!(debug_assertions) {
                 app.handle().plugin(

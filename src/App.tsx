@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
-import { Bookmark, Film, HelpCircle, Play, Search, Settings, Star } from 'lucide-react';
+import { Bookmark, Download, Film, HelpCircle, Loader2, Play, Search, Settings, Star, X } from 'lucide-react';
 import { CatalogBrowser } from './components/CatalogBrowser';
 import { CommandSearch } from './components/CommandSearch';
 import { ContinueWatchingRow } from './components/ContinueWatchingRow';
@@ -38,8 +38,16 @@ import {
   setTmdbLanguage,
   type DiscoverSortBy,
 } from './services/tmdb';
+import {
+  checkForAppUpdate,
+  FALLBACK_APP_VERSION,
+  getCurrentAppVersion,
+  installAppUpdate,
+  type AppUpdate,
+  type UpdateDownloadProgress,
+} from './services/updater';
 import type { MediaItem, MediaType, PlayRequest } from './types/media';
-import { installExternalLinkInterceptor } from './utils/externalLink';
+import { installExternalLinkInterceptor, isTauriRuntime } from './utils/externalLink';
 import { resolveLanguageConfig } from './utils/locale';
 
 interface ActivePlayerSession {
@@ -134,6 +142,92 @@ export default function App() {
   const [activeSession, setActiveSession] = useState<ActivePlayerSession | null>(null);
   const [downloads, setDownloads] = useState<DownloadItem[]>([]);
   const [resolvedDownloadDir, setResolvedDownloadDir] = useState('');
+
+  // Auto-updater nativo (Tauri v2)
+  const [appVersion, setAppVersion] = useState<string>(FALLBACK_APP_VERSION);
+  const [availableUpdate, setAvailableUpdate] = useState<AppUpdate | null>(null);
+  const [updateToastDismissed, setUpdateToastDismissed] = useState(false);
+  const [checkingUpdate, setCheckingUpdate] = useState(false);
+  const [installingUpdate, setInstallingUpdate] = useState(false);
+  const [updateProgress, setUpdateProgress] = useState<UpdateDownloadProgress | null>(null);
+  const [updateStatusText, setUpdateStatusText] = useState<string | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    void getCurrentAppVersion().then((v) => {
+      if (active) setAppVersion(v);
+    });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  // Checagem silenciosa de atualização 4 segundos após abrir o app Desktop
+  useEffect(() => {
+    if (!isTauriRuntime()) return;
+    let active = true;
+    const timer = window.setTimeout(() => {
+      void checkForAppUpdate()
+        .then((update) => {
+          if (!active || !update) return;
+          setAvailableUpdate(update);
+          setUpdateToastDismissed(false);
+          setUpdateStatusText(`Nova versão v${update.version} disponível.`);
+        })
+        .catch(() => {
+          // Checagem silenciosa não exibe erro no boot
+        });
+    }, 4000);
+
+    return () => {
+      active = false;
+      window.clearTimeout(timer);
+    };
+  }, []);
+
+  const handleCheckForUpdate = useCallback(async () => {
+    if (!isTauriRuntime()) {
+      setUpdateStatusText('Atualizações automáticas estão disponíveis no app Desktop Windows.');
+      return;
+    }
+    if (checkingUpdate || installingUpdate) return;
+    setCheckingUpdate(true);
+    setUpdateStatusText(null);
+    try {
+      const update = await checkForAppUpdate();
+      if (update) {
+        setAvailableUpdate(update);
+        setUpdateToastDismissed(false);
+        setUpdateStatusText(`Nova versão v${update.version} disponível.`);
+      } else {
+        setAvailableUpdate(null);
+        setUpdateStatusText(`Você já está na versão mais recente (v${appVersion}).`);
+      }
+    } catch {
+      setUpdateStatusText('Não foi possível verificar atualizações agora.');
+    } finally {
+      setCheckingUpdate(false);
+    }
+  }, [appVersion, checkingUpdate, installingUpdate]);
+
+  const handleInstallUpdate = useCallback(async () => {
+    if (!availableUpdate || installingUpdate) return;
+    setInstallingUpdate(true);
+    setUpdateProgress({ downloaded: 0, contentLength: null, percent: 0 });
+    setUpdateStatusText(`Baixando v${availableUpdate.version}...`);
+    try {
+      await installAppUpdate(availableUpdate, (progress) => {
+        setUpdateProgress(progress);
+        if (progress.percent === 100) {
+          setUpdateStatusText('Instalando atualização e reiniciando...');
+        }
+      });
+    } catch {
+      setInstallingUpdate(false);
+      setUpdateProgress(null);
+      setUpdateStatusText('Falha ao baixar ou instalar a atualização. Tente novamente.');
+    }
+  }, [availableUpdate, installingUpdate]);
 
   const refreshDownloads = useCallback(async () => {
     try {
@@ -877,6 +971,14 @@ export default function App() {
         }}
         onExportBackup={exportBackupJson}
         onImportBackup={importBackupJson}
+        appVersion={appVersion}
+        availableUpdateVersion={availableUpdate?.version ?? null}
+        checkingUpdate={checkingUpdate}
+        installingUpdate={installingUpdate}
+        updateProgress={updateProgress}
+        updateStatusText={updateStatusText}
+        onCheckForUpdate={handleCheckForUpdate}
+        onInstallUpdate={handleInstallUpdate}
       />
 
       {/* Painel Cinematográfico de Detalhes */}
@@ -903,6 +1005,84 @@ export default function App() {
         tmdbApiKey={tmdbApiKey}
         onSaveTmdbKey={handleSaveTmdbKey}
       />
+
+      {/* Toast Editorial Minimalista de Nova Versão (Tauri Updater) */}
+      <AnimatePresence>
+        {availableUpdate && !updateToastDismissed && !activeSession && (
+          <motion.div
+            initial={{ opacity: 0, y: 16, scale: 0.98 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 12, scale: 0.98 }}
+            transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
+            role="status"
+            aria-live="polite"
+            className="fixed bottom-5 right-5 z-40 w-[340px] max-w-[calc(100vw-2.5rem)] rounded-2xl border border-[var(--ph-border-strong)] bg-[var(--ph-surface)]/95 p-4 shadow-2xl backdrop-blur-xl"
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-[var(--ph-text-muted)]">
+                  Atualização do PlayHub
+                </p>
+                <p className="mt-1 text-sm font-semibold text-[var(--ph-text)] tabular-nums">
+                  Nova versão v{availableUpdate.version} disponível
+                </p>
+              </div>
+              {!installingUpdate && (
+                <button
+                  type="button"
+                  onClick={() => setUpdateToastDismissed(true)}
+                  aria-label="Dispensar aviso de atualização"
+                  className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-[var(--ph-text-muted)] transition-colors hover:bg-[var(--ph-hover)] hover:text-[var(--ph-text)]"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              )}
+            </div>
+
+            {installingUpdate ? (
+              <div className="mt-3 space-y-2">
+                <div className="flex items-center justify-between text-xs text-[var(--ph-text-muted)]">
+                  <span className="inline-flex items-center gap-1.5">
+                    <Loader2 className="h-3.5 w-3.5 animate-spin text-[var(--ph-text)]" />
+                    {updateProgress?.percent === 100
+                      ? 'Instalando e reiniciando...'
+                      : 'Baixando atualização...'}
+                  </span>
+                  {updateProgress?.percent !== null && updateProgress?.percent !== undefined && (
+                    <span className="font-medium text-[var(--ph-text)] tabular-nums">
+                      {updateProgress.percent}%
+                    </span>
+                  )}
+                </div>
+                <div className="h-1.5 w-full overflow-hidden rounded-full bg-[var(--ph-surface-2)]">
+                  <div
+                    className="h-full rounded-full bg-[var(--ph-btn-primary-bg)] transition-all duration-200"
+                    style={{ width: `${updateProgress?.percent ?? 15}%` }}
+                  />
+                </div>
+              </div>
+            ) : (
+              <div className="mt-3.5 flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => void handleInstallUpdate()}
+                  className="inline-flex h-9 flex-1 items-center justify-center gap-1.5 rounded-xl bg-[var(--ph-btn-primary-bg)] px-3.5 text-xs font-semibold text-[var(--ph-btn-primary-fg)] transition-colors hover:bg-[var(--ph-btn-primary-hover)]"
+                >
+                  <Download className="h-3.5 w-3.5" />
+                  <span>Atualizar agora</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setUpdateToastDismissed(true)}
+                  className="inline-flex h-9 items-center justify-center rounded-xl border border-[var(--ph-border)] bg-[var(--ph-surface-2)] px-3.5 text-xs font-medium text-[var(--ph-text-muted)] transition-colors hover:bg-[var(--ph-hover)] hover:text-[var(--ph-text)]"
+                >
+                  Depois
+                </button>
+              </div>
+            )}
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Player de Vídeo Editorial em Tela Cheia */}
       <AnimatePresence>

@@ -1,7 +1,7 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "PlayHub",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "identifier": "com.playhub.desktop",
   "build": {
     "frontendDist": "../dist",
@@ -28,6 +28,7 @@
   },
   "bundle": {
     "active": true,
+    "createUpdaterArtifacts": true,
     "targets": [
       "nsis"
     ],
@@ -54,6 +55,17 @@
     },
     "android": {
       "debugApplicationIdSuffix": ".debug"
+    }
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDY3MTA4NDY3NERFMUJDQjcKUldTM3ZPRk5aNFFRWnplSDV4Z05ITDY1Sml4b1JPYmRyT1RNalJjQVNnYlhDWFhBSnFENnp1ZG4K",
+      "endpoints": [
+        "https://github.com/Luanserph/playhub/releases/latest/download/latest.json"
+      ],
+      "windows": {
+        "installMode": "passive"
+      }
     }
   }
 }

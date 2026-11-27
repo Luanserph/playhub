@@ -35,6 +35,7 @@ import type {
   UserPreferences,
 } from '../services/storage';
 import { getTmdbKeySource, validateTmdbKey } from '../services/tmdb';
+import type { UpdateDownloadProgress } from '../services/updater';
 import { openExternalUrl } from '../utils/externalLink';
 import {
   getSystemLocale,
@@ -71,6 +72,14 @@ interface SettingsModalProps {
   onChangeDownloadDir?: (dir: string) => void;
   onExportBackup: (options?: { includeTmdbKey?: boolean }) => void;
   onImportBackup: (rawJson: string) => Promise<{ ok: boolean; error?: string }>;
+  appVersion?: string;
+  availableUpdateVersion?: string | null;
+  checkingUpdate?: boolean;
+  installingUpdate?: boolean;
+  updateProgress?: UpdateDownloadProgress | null;
+  updateStatusText?: string | null;
+  onCheckForUpdate?: () => Promise<void> | void;
+  onInstallUpdate?: () => Promise<void> | void;
 }
 
 const SHEET_SPRING = {
@@ -109,6 +118,14 @@ export function SettingsModal({
   onChangeDownloadDir,
   onExportBackup,
   onImportBackup,
+  appVersion = '0.3.0',
+  availableUpdateVersion = null,
+  checkingUpdate = false,
+  installingUpdate = false,
+  updateProgress = null,
+  updateStatusText = null,
+  onCheckForUpdate,
+  onInstallUpdate,
 }: SettingsModalProps) {
   const isDesktop = useIsDesktop(768);
   const systemLangConfig = resolveLanguageConfig(getSystemLocale());
@@ -1067,6 +1084,87 @@ export function SettingsModal({
                   <HelpCircle className="h-3.5 w-3.5" />
                   <span>Abrir Tutorial / Guia Inicial</span>
                 </button>
+              </section>
+
+              {/* Seção: Versão e Atualizações */}
+              <section>
+                <div className="flex items-baseline justify-between">
+                  <h3 className="text-[11px] font-medium uppercase tracking-[0.14em] text-[var(--ph-text-muted)]">
+                    Versão e Atualizações
+                  </h3>
+                  <span className="rounded-md border border-[var(--ph-border)] bg-[var(--ph-surface-2)] px-2 py-0.5 text-[11px] font-medium text-[var(--ph-text)] tabular-nums">
+                    v{appVersion}
+                  </span>
+                </div>
+
+                <div className="mt-3 rounded-2xl border border-[var(--ph-border)] bg-[var(--ph-surface-2)] p-3.5">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="text-xs font-medium text-[var(--ph-text)]">
+                        {availableUpdateVersion
+                          ? `Nova versão v${availableUpdateVersion} pronta`
+                          : 'PlayHub Desktop'}
+                      </p>
+                      <p className="mt-0.5 text-[11px] text-[var(--ph-text-muted)]">
+                        {updateStatusText || 'Atualizações assinadas via GitHub Releases.'}
+                      </p>
+                    </div>
+
+                    {availableUpdateVersion && onInstallUpdate ? (
+                      <button
+                        type="button"
+                        disabled={installingUpdate}
+                        onClick={() => void onInstallUpdate()}
+                        className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-xl bg-[var(--ph-btn-primary-bg)] px-3.5 text-xs font-semibold text-[var(--ph-btn-primary-fg)] transition-colors hover:bg-[var(--ph-btn-primary-hover)] disabled:opacity-60"
+                      >
+                        {installingUpdate ? (
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        ) : (
+                          <Download className="h-3.5 w-3.5" />
+                        )}
+                        <span>{installingUpdate ? 'Atualizando...' : 'Atualizar agora'}</span>
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        disabled={checkingUpdate || installingUpdate}
+                        onClick={() => void onCheckForUpdate?.()}
+                        className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-xl border border-[var(--ph-border)] bg-[var(--ph-surface)] px-3.5 text-xs font-medium text-[var(--ph-text)] transition-colors hover:bg-[var(--ph-hover)] disabled:opacity-60"
+                      >
+                        {checkingUpdate ? (
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        ) : (
+                          <RefreshCw className="h-3.5 w-3.5" />
+                        )}
+                        <span>{checkingUpdate ? 'Verificando...' : 'Verificar atualizações'}</span>
+                      </button>
+                    )}
+                  </div>
+
+                  {installingUpdate && (
+                    <div className="mt-3 space-y-1.5">
+                      <div className="flex items-center justify-between text-[11px] text-[var(--ph-text-muted)] tabular-nums">
+                        <span>
+                          {updateProgress?.percent === 100
+                            ? 'Instalando e reiniciando...'
+                            : 'Baixando pacote...'}
+                        </span>
+                        {updateProgress?.percent !== null &&
+                          updateProgress?.percent !== undefined && (
+                            <span className="font-medium text-[var(--ph-text)]">
+                              {updateProgress.percent}%
+                            </span>
+                          )}
+                      </div>
+                      <div className="h-1.5 w-full overflow-hidden rounded-full bg-[var(--ph-surface)]">
+                        <div
+                          className="h-full rounded-full bg-[var(--ph-btn-primary-bg)] transition-all duration-200"
+                          style={{ width: `${updateProgress?.percent ?? 15}%` }}
+                        />
+                      </div>
+                    </div>
+                  )}
+                </div>
               </section>
             </div>
           </motion.div>

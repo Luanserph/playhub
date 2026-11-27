@@ -1,6 +1,6 @@
 [package]
 name = "app"
-version = "0.2.0"
+version = "0.3.0"
 description = "PlayHub - Cinema em casa com catálogo editorial e player nativo"
 authors = ["PlayHub"]
 license = ""
@@ -24,3 +24,5 @@ log = "0.4"
 tauri = { version = "2.12.7" }
 tauri-plugin-log = "2"
 tauri-plugin-shell = "2"
+tauri-plugin-updater = "2"
+tauri-plugin-process = "2"
