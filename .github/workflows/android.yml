@@ -91,8 +91,16 @@ jobs:
         run: |
           set -euo pipefail
 
-          if [ -z "${ANDROID_KEYSTORE_BASE64:-}" ] || [ -z "${ANDROID_KEY_ALIAS:-}" ] || [ -z "${ANDROID_KEYSTORE_PASSWORD:-}" ]; then
-            echo "Secrets ANDROID_KEYSTORE_BASE64, ANDROID_KEY_ALIAS ou ANDROID_KEYSTORE_PASSWORD não configurados." >&2
+          echo "ANDROID_KEYSTORE_BASE64: $([ -n "${ANDROID_KEYSTORE_BASE64:-}" ] && echo OK || echo VAZIO)"
+          echo "ANDROID_KEY_ALIAS: $([ -n "${ANDROID_KEY_ALIAS:-}" ] && echo OK || echo VAZIO)"
+          echo "ANDROID_KEYSTORE_PASSWORD: $([ -n "${ANDROID_KEYSTORE_PASSWORD:-}" ] && echo OK || echo VAZIO)"
+
+          MISSING=0
+          [ -z "${ANDROID_KEYSTORE_BASE64:-}" ] && MISSING=1
+          [ -z "${ANDROID_KEY_ALIAS:-}" ] && MISSING=1
+          [ -z "${ANDROID_KEYSTORE_PASSWORD:-}" ] && MISSING=1
+          if [ "$MISSING" -ne 0 ]; then
+            echo "Um ou mais secrets Android obrigatórios estão vazios." >&2
             exit 1
           fi
 
