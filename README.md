@@ -8,12 +8,12 @@
 
 [![Versão](https://img.shields.io/github/v/release/Luanserph/playhub?style=flat-square&label=vers%C3%A3o&color=18181b&labelColor=09090b)](https://github.com/Luanserph/playhub/releases/latest)
 [![Plataforma](https://img.shields.io/badge/Windows-10%20%2F%2011-18181b?style=flat-square&logo=windows&logoColor=fafafa&labelColor=09090b)](https://github.com/Luanserph/playhub/releases/latest)
-[![Stack](https://img.shields.io/badge/Tauri%20v2-React%20%2B%20Node%20SEA-18181b?style=flat-square&logo=tauri&logoColor=fafafa&labelColor=09090b)](#por-baixo-dos-panos)
+[![Stack](https://img.shields.io/badge/Tauri%20v2-React%20%2B%20Node%20SEA-18181b?style=flat-square&logo=tauri&logoColor=fafafa&labelColor=09090b)](#para-desenvolvedores)
 [![Status](https://img.shields.io/badge/status-em%20desenvolvimento%20ativo-27272a?style=flat-square&labelColor=09090b)](#roadmap)
 
 <br />
 
-**[Baixar instalador para Windows (`.exe`)](https://github.com/Luanserph/playhub/releases/latest)** &nbsp;·&nbsp; [O que ele faz](#o-que-o-playhub-entrega) &nbsp;·&nbsp; [Atalhos](#atalhos-do-teclado) &nbsp;·&nbsp; [Rodar localmente](#para-desenvolvedores)
+**[Baixar instalador para Windows (`.exe`)](https://github.com/Luanserph/playhub/releases/latest)** &nbsp;·&nbsp; [Prévia](#prévia) &nbsp;·&nbsp; [O que ele faz](#o-que-o-playhub-entrega) &nbsp;·&nbsp; [Atalhos](#atalhos-do-teclado) &nbsp;·&nbsp; [Rodar localmente](#para-desenvolvedores)
 
 </div>
 
@@ -21,12 +21,26 @@
 
 > **Projeto em evolução constante:** o PlayHub nasceu para unir a praticidade de abrir um filme ou série em segundos com uma interface limpa — sem anúncios, sem poluição visual e sem precisar configurar terminal. Novas versões, melhorias no player e ajustes de interface chegam com frequência.
 
-<!--
-Dica: depois de tirar 2 ou 3 prints do app rodando, salve em docs/screenshots/ e descomente a linha abaixo:
+## Prévia
+
 <p align="center">
   <img src="docs/screenshots/home.png" alt="Tela inicial do PlayHub" width="100%" />
 </p>
--->
+
+<table width="100%">
+  <tr>
+    <td width="50%" align="center">
+      <img src="docs/screenshots/details.png" alt="Tela de detalhes e temporadas" width="100%" />
+      <sub>Detalhes em tela cheia e barra de temporadas temática</sub>
+    </td>
+    <td width="50%" align="center">
+      <img src="docs/screenshots/player.png" alt="Player nativo com legendas PT-BR" width="100%" />
+      <sub>Player nativo com proporção customizável e legendas PT-BR</sub>
+    </td>
+  </tr>
+</table>
+
+---
 
 ## Instalação rápida no Windows
 
