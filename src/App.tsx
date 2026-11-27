@@ -614,7 +614,7 @@ export default function App() {
       >
         {/* Topbar minimalista no Mobile (logo + busca + configurações) */}
         {!isDesktop && (
-          <header className="sticky top-0 z-30 flex items-center justify-between border-b border-[var(--ph-border)] bg-[var(--ph-topbar)] px-5 py-3.5 pt-[calc(env(safe-area-inset-top)+12px)] backdrop-blur-xl">
+          <header className="sticky top-0 z-30 flex items-center justify-between border-b border-[var(--ph-border)] bg-[var(--ph-topbar)] px-5 py-3.5 pt-[calc(var(--safe-top)+12px)] backdrop-blur-xl">
             <button
               type="button"
               onClick={() => handleTabChange('home')}

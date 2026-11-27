@@ -109,7 +109,7 @@ export function Navigation({
     return (
       <nav
         aria-label="Navegação principal"
-        className="pointer-events-none fixed inset-x-0 bottom-0 z-40 px-3 pb-[calc(env(safe-area-inset-bottom)+10px)] pt-2"
+        className="pointer-events-none fixed inset-x-0 bottom-0 z-40 px-3 pb-[calc(var(--safe-bottom)+10px)] pt-2"
       >
         <div className="pointer-events-auto mx-auto flex max-w-md items-center justify-between gap-1 rounded-2xl border border-[var(--ph-border)] bg-[var(--ph-surface-glass)] p-1.5 shadow-2xl shadow-black/25 backdrop-blur-xl">
           {mobileActions.map((item) => {

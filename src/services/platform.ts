@@ -12,6 +12,17 @@ export function isAndroid(): boolean {
   return isTauri() && /Android/i.test(navigator.userAgent);
 }
 
+export function applyPlatformDocumentClasses(): void {
+  if (typeof document === 'undefined') return;
+  if (isAndroid()) {
+    document.documentElement.classList.add('is-android');
+  } else {
+    document.documentElement.classList.remove('is-android');
+  }
+}
+
+applyPlatformDocumentClasses();
+
 export function isDesktopTauri(): boolean {
   return isTauri() && !isAndroid();
 }

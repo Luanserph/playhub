@@ -124,7 +124,7 @@ export function OnboardingGuide({
     <AnimatePresence>
       {open && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center p-4"
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 pt-[calc(var(--safe-top)+12px)] pb-[calc(var(--safe-bottom)+12px)]"
           role="dialog"
           aria-modal="true"
           aria-label="Guia inicial do PlayHub"

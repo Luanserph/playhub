@@ -389,7 +389,7 @@ export function SettingsModal({
     <AnimatePresence>
       {open && (
         <div
-          className="fixed inset-0 z-50 flex items-end justify-end md:items-stretch"
+          className="fixed inset-0 z-50 flex items-end justify-end pt-[var(--safe-top)] md:items-stretch md:pt-0"
           role="dialog"
           aria-modal="true"
           aria-label="Configurações"

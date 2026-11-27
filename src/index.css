@@ -4,6 +4,8 @@
   :root,
   [data-theme="dark"] {
     color-scheme: dark;
+    --safe-top: env(safe-area-inset-top, 0px);
+    --safe-bottom: env(safe-area-inset-bottom, 0px);
     --ph-bg: #09090B;
     --ph-surface: #121215;
     --ph-surface-2: #18181B;
@@ -48,6 +50,11 @@
     --ph-scrollbar: rgba(0, 0, 0, 0.14);
     --ph-scrollbar-hover: rgba(0, 0, 0, 0.26);
     --ph-backdrop-overlay: rgba(9, 9, 11, 0.48);
+  }
+
+  .is-android {
+    --safe-top: max(env(safe-area-inset-top, 0px), 36px);
+    --safe-bottom: max(env(safe-area-inset-bottom, 0px), 16px);
   }
 
   html,

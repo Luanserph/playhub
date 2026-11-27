@@ -27,7 +27,7 @@ import {
 } from 'lucide-react';
 import { EmbedSubtitleOverlay } from './EmbedSubtitleOverlay';
 import { API_BASE_URL, getApiBaseUrl, hasBackendServer } from '../services/api';
-import { isTouchDevice } from '../services/platform';
+import { isAndroid, isTouchDevice } from '../services/platform';
 import { NeuralDubbingController } from '../services/neuralDubbing';
 import { openExternalUrl } from '../utils/externalLink';
 import {
@@ -176,11 +176,14 @@ export function VideoPlayer({
   const userPickedSubRef = useRef(false);
 
   const isOfflinePlayback = Boolean(request.offlineDownloadId);
+  const isAndroidStandalone = isAndroid() && !hasBackendServer();
   const initialMode: PlayerMode = isOfflinePlayback
     ? 'native'
-    : preferences.defaultPlayerMode === 'native'
-      ? 'native'
-      : 'embed';
+    : isAndroidStandalone
+      ? 'embed'
+      : preferences.defaultPlayerMode === 'native'
+        ? 'native'
+        : 'embed';
 
   const [phase, setPhase] = useState<
     'resolving' | 'empty' | 'loading-stream' | 'ready' | 'error'
@@ -294,6 +297,16 @@ export function VideoPlayer({
       : activeStream.url
     : null;
   const isTouch = isTouchDevice();
+  const isUnsupportedStandaloneSource =
+    isAndroidStandalone &&
+    playerMode === 'native' &&
+    Boolean(activeStream) &&
+    (activeStream.sourceType === 'torrent' ||
+      activeStream.url.startsWith('magnet:') ||
+      /\.(mkv|avi)(\?|$)/i.test(activeStream.url) ||
+      /\b(hevc|x265|h265|10bit)\b/i.test(
+        `${activeStream.name} ${activeStream.title} ${activeStream.releaseTitle ?? ''}`
+      ));
 
   const aiDubbingActive =
     playerMode === 'native' &&
@@ -686,6 +699,7 @@ export function VideoPlayer({
     if (
       playerMode !== 'native' ||
       !activeStream ||
+      isUnsupportedStandaloneSource ||
       phase === 'resolving' ||
       phase === 'empty' ||
       phase === 'error'
@@ -1894,6 +1908,63 @@ export function VideoPlayer({
         )}
       </AnimatePresence>
 
+      {/* Card Android Standalone para fontes Torrent / MKV / HEVC sem Servidor LAN */}
+      <AnimatePresence>
+        {isUnsupportedStandaloneSource && (
+          <motion.div
+            initial={{ opacity: 0, scale: 0.97 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0 }}
+            className="absolute inset-0 z-20 flex items-center justify-center bg-[#09090B]/92 px-6 pt-[calc(var(--safe-top)+64px)] backdrop-blur-md"
+          >
+            <div className="w-full max-w-md rounded-2xl border border-white/[0.08] bg-[#121215] p-6 text-center shadow-2xl">
+              <div className="mx-auto flex h-11 w-11 items-center justify-center rounded-xl border border-white/[0.08] bg-[#18181B]">
+                <Server className="h-5 w-5 text-[#FAFAFA]" />
+              </div>
+              <h2 className="mt-4 text-base font-semibold text-[#FAFAFA]">
+                Fonte P2P / MKV requer App Externo ou Servidor LAN
+              </h2>
+              <p className="mt-1.5 text-sm leading-relaxed text-[#A1A1AA]">
+                No Android em modo standalone, torrents e arquivos MKV/HEVC não reproduzem direto no WebView. Escolha como deseja assistir:
+              </p>
+
+              <div className="mt-6 flex flex-col gap-2.5">
+                <button
+                  type="button"
+                  onClick={() => handleSwitchMode('embed')}
+                  className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-xl bg-white px-5 text-sm font-semibold text-zinc-950 transition-colors hover:bg-zinc-200"
+                >
+                  <Play className="h-4 w-4 fill-zinc-950" />
+                  <span>Abrir no Embed (imdb.su)</span>
+                </button>
+
+                {externalStreamUrl && (
+                  <button
+                    type="button"
+                    onClick={() => void openExternalUrl(externalStreamUrl)}
+                    className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-xl border border-white/[0.12] bg-[#18181B] px-5 text-sm font-medium text-[#FAFAFA] transition-colors hover:bg-white/[0.08]"
+                  >
+                    <ExternalLink className="h-4 w-4" />
+                    <span>Abrir link Magnet em App Externo</span>
+                  </button>
+                )}
+
+                {onOpenSettings && (
+                  <button
+                    type="button"
+                    onClick={onOpenSettings}
+                    className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-xl border border-white/[0.08] bg-transparent px-5 text-xs font-medium text-[#A1A1AA] transition-colors hover:bg-white/[0.06] hover:text-[#FAFAFA]"
+                  >
+                    <Settings className="h-4 w-4" />
+                    <span>Configurar Servidor LAN do PC</span>
+                  </button>
+                )}
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* Estado de erro (abaixo da barra superior z-40 e do popover de fontes z-50) */}
       <AnimatePresence>
         {phase === 'error' && (
@@ -1998,9 +2069,9 @@ export function VideoPlayer({
             {/* Barra superior */}
             <div
               className={`pointer-events-auto flex flex-wrap items-center justify-between gap-3 px-4 sm:px-8 ${
-                playerMode === 'embed' || phase === 'error'
-                  ? 'h-16 border-b border-white/[0.08] bg-[#09090B]/95 backdrop-blur-md'
-                  : 'bg-gradient-to-b from-black/80 via-black/40 to-transparent pb-10 pt-5'
+                playerMode === 'embed' || phase === 'error' || isUnsupportedStandaloneSource
+                  ? 'min-h-16 border-b border-white/[0.08] bg-[#09090B]/95 pb-2.5 pt-[calc(var(--safe-top)+10px)] backdrop-blur-md'
+                  : 'bg-gradient-to-b from-black/80 via-black/40 to-transparent pb-10 pt-[calc(var(--safe-top)+16px)]'
               }`}
             >
               <div className="flex min-w-0 items-center gap-3">
@@ -2110,9 +2181,10 @@ export function VideoPlayer({
                   </button>
                 </div>
 
-                {/* Botão Baixar esta fonte (salva no disco o torrent atual) */}
+                {/* Botão Baixar esta fonte (salva no disco o torrent atual; oculto no Android sem Servidor LAN) */}
                 {playerMode === 'native' &&
                   !isOfflinePlayback &&
+                  hasBackendServer() &&
                   activeStream?.sourceType === 'torrent' &&
                   activeStream.infoHash &&
                   onStartDownload && (

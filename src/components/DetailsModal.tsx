@@ -102,7 +102,7 @@ export function DetailsModal({
     <AnimatePresence>
       {item && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4"
+          className="fixed inset-0 z-50 flex items-center justify-center p-2 pt-[calc(var(--safe-top)+8px)] pb-[calc(var(--safe-bottom)+8px)] sm:p-4"
           role="dialog"
           aria-modal="true"
           aria-label={item.title || item.name || 'Detalhes'}
