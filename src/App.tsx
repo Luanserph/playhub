@@ -187,7 +187,7 @@ export default function App() {
 
   const handleCheckForUpdate = useCallback(async () => {
     if (!isTauriRuntime()) {
-      setUpdateStatusText('Atualizações automáticas estão disponíveis no app Desktop Windows.');
+      setUpdateStatusText('Atualizações estão disponíveis nos apps Windows e Android.');
       return;
     }
     if (checkingUpdate || installingUpdate) return;
@@ -212,6 +212,17 @@ export default function App() {
 
   const handleInstallUpdate = useCallback(async () => {
     if (!availableUpdate || installingUpdate) return;
+    if (availableUpdate.kind === 'android') {
+      setUpdateStatusText(`Abrindo download do APK v${availableUpdate.version}...`);
+      try {
+        await installAppUpdate(availableUpdate);
+        setUpdateToastDismissed(true);
+      } catch {
+        setUpdateStatusText('Não foi possível abrir o link do APK. Tente novamente.');
+      }
+      return;
+    }
+
     setInstallingUpdate(true);
     setUpdateProgress({ downloaded: 0, contentLength: null, percent: 0 });
     setUpdateStatusText(`Baixando v${availableUpdate.version}...`);

@@ -1,14 +1,55 @@
 import type { Update } from '@tauri-apps/plugin-updater';
-import { isDesktopTauri } from './platform';
+import { openExternalUrl } from '../utils/externalLink';
+import { isAndroid, isDesktopTauri, smartFetch } from './platform';
 
-export const FALLBACK_APP_VERSION = '0.3.0';
+const GITHUB_LATEST_RELEASE_URL =
+  'https://api.github.com/repos/Luanserph/playhub/releases/latest';
 
-export type AppUpdate = Update;
+export const FALLBACK_APP_VERSION =
+  typeof __APP_VERSION__ === 'string' && __APP_VERSION__.trim()
+    ? __APP_VERSION__.trim()
+    : '0.3.0';
+
+export type AppUpdate =
+  | {
+      kind: 'desktop';
+      version: string;
+      notes?: string;
+      tauriUpdate: Update;
+    }
+  | {
+      kind: 'android';
+      version: string;
+      notes?: string;
+      downloadUrl: string;
+    };
 
 export interface UpdateDownloadProgress {
   downloaded: number;
   contentLength: number | null;
   percent: number | null;
+}
+
+function normalizeVersion(raw: string): number[] {
+  const cleaned = raw.trim().replace(/^v/i, '').split('-')[0];
+  return cleaned
+    .split('.')
+    .map((part) => Number.parseInt(part, 10))
+    .map((n) => (Number.isFinite(n) ? n : 0));
+}
+
+function isVersionNewer(remoteVersion: string, currentVersion: string): boolean {
+  const remote = normalizeVersion(remoteVersion);
+  const current = normalizeVersion(currentVersion);
+  const len = Math.max(remote.length, current.length, 3);
+
+  for (let i = 0; i < len; i++) {
+    const r = remote[i] ?? 0;
+    const c = current[i] ?? 0;
+    if (r > c) return true;
+    if (r < c) return false;
+  }
+  return false;
 }
 
 export async function getCurrentAppVersion(): Promise<string> {
@@ -23,22 +64,91 @@ export async function getCurrentAppVersion(): Promise<string> {
   }
 }
 
+interface GitHubReleaseAsset {
+  name?: string;
+  browser_download_url?: string;
+}
+
+interface GitHubLatestReleaseResponse {
+  tag_name?: string;
+  body?: string;
+  assets?: GitHubReleaseAsset[];
+}
+
+async function checkForAndroidUpdate(): Promise<AppUpdate | null> {
+  const res = await smartFetch(GITHUB_LATEST_RELEASE_URL, {
+    headers: {
+      Accept: 'application/vnd.github+json',
+    },
+  });
+  if (!res.ok) return null;
+
+  const data = (await res.json()) as GitHubLatestReleaseResponse;
+  const rawTag = typeof data.tag_name === 'string' ? data.tag_name.trim() : '';
+  if (!rawTag) return null;
+
+  const remoteVersion = rawTag.replace(/^v/i, '');
+  const currentVersion = FALLBACK_APP_VERSION;
+  if (!isVersionNewer(remoteVersion, currentVersion)) {
+    return null;
+  }
+
+  const assets = Array.isArray(data.assets) ? data.assets : [];
+  const apkAsset = assets.find(
+    (asset) =>
+      typeof asset.name === 'string' &&
+      asset.name.toLowerCase().endsWith('.apk') &&
+      typeof asset.browser_download_url === 'string' &&
+      asset.browser_download_url.startsWith('https://')
+  );
+
+  if (!apkAsset?.browser_download_url) {
+    return null;
+  }
+
+  return {
+    kind: 'android',
+    version: remoteVersion,
+    notes: typeof data.body === 'string' ? data.body : undefined,
+    downloadUrl: apkAsset.browser_download_url,
+  };
+}
+
 export async function checkForAppUpdate(): Promise<AppUpdate | null> {
-  if (!isDesktopTauri()) return null;
-  const { check } = await import('@tauri-apps/plugin-updater');
-  return await check();
+  if (isDesktopTauri()) {
+    const { check } = await import('@tauri-apps/plugin-updater');
+    const update = await check();
+    if (!update) return null;
+    return {
+      kind: 'desktop',
+      version: update.version,
+      notes: update.body ?? undefined,
+      tauriUpdate: update,
+    };
+  }
+
+  if (isAndroid()) {
+    return checkForAndroidUpdate();
+  }
+
+  return null;
 }
 
 export async function installAppUpdate(
   update: AppUpdate,
   onProgress?: (progress: UpdateDownloadProgress) => void
 ): Promise<void> {
+  if (update.kind === 'android') {
+    await openExternalUrl(update.downloadUrl);
+    return;
+  }
+
   if (!isDesktopTauri()) return;
 
   let downloaded = 0;
   let contentLength: number | null = null;
 
-  await update.download((event) => {
+  await update.tauriUpdate.download((event) => {
     if (event.event === 'Started') {
       contentLength = event.data.contentLength ?? null;
       downloaded = 0;
@@ -67,7 +177,7 @@ export async function installAppUpdate(
     // Segue com a instalação mesmo se o sidecar já estiver encerrado
   }
 
-  await update.install();
+  await update.tauriUpdate.install();
 
   // Caso o instalador não reinicie o app automaticamente
   try {

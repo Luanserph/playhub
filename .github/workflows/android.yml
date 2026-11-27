@@ -6,6 +6,9 @@ on:
     tags:
       - 'v*'
 
+permissions:
+  contents: write
+
 jobs:
   build-android:
     runs-on: ubuntu-latest
@@ -76,17 +79,62 @@ jobs:
             console.log(xml);
           '
 
-      - name: Build Android APK (aarch64 debug)
-        run: npx tauri android build --apk --target aarch64 --debug
+      - name: Build Android APK (aarch64 release)
+        run: npx tauri android build --apk --target aarch64 --verbose
 
-      # Após validar o primeiro APK debug e configurar o keystore nos secrets do repositório,
-      # substitua o passo acima pelo build de release assinado:
-      # - name: Build Android APK (aarch64 signed release)
-      #   run: npx tauri android build --apk --target aarch64
+      - name: Align and sign Android Release APK
+        shell: bash
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+        run: |
+          set -euo pipefail
 
-      - name: Upload Android APK artifact
+          if [ -z "${ANDROID_KEYSTORE_BASE64:-}" ] || [ -z "${ANDROID_KEY_ALIAS:-}" ] || [ -z "${ANDROID_KEYSTORE_PASSWORD:-}" ]; then
+            echo "Secrets ANDROID_KEYSTORE_BASE64, ANDROID_KEY_ALIAS ou ANDROID_KEYSTORE_PASSWORD não configurados." >&2
+            exit 1
+          fi
+
+          echo "$ANDROID_KEYSTORE_BASE64" | base64 --decode > /tmp/playhub-release.keystore
+          trap 'rm -f /tmp/playhub-release.keystore PlayHub-android-arm64-aligned.apk' EXIT
+
+          BUILD_TOOLS=$(ls -d "$ANDROID_HOME"/build-tools/* 2>/dev/null | sort -V | tail -n 1)
+          if [ -z "$BUILD_TOOLS" ]; then
+            echo "Android build-tools não encontrado em $ANDROID_HOME/build-tools/*" >&2
+            exit 1
+          fi
+          echo "Using build-tools: $BUILD_TOOLS"
+
+          RAW_APK=$(find src-tauri/gen/android/app/build/outputs/apk/arm64/release -maxdepth 2 -name "*.apk" | head -n 1)
+          if [ -z "$RAW_APK" ]; then
+            echo "APK release não encontrado em src-tauri/gen/android/app/build/outputs/apk/arm64/release/" >&2
+            exit 1
+          fi
+          echo "Found raw APK: $RAW_APK"
+
+          "$BUILD_TOOLS/zipalign" -p -f -v 4 "$RAW_APK" PlayHub-android-arm64-aligned.apk
+          "$BUILD_TOOLS/apksigner" sign \
+            --ks /tmp/playhub-release.keystore \
+            --ks-key-alias "$ANDROID_KEY_ALIAS" \
+            --ks-pass "pass:$ANDROID_KEYSTORE_PASSWORD" \
+            --out PlayHub-android-arm64.apk \
+            PlayHub-android-arm64-aligned.apk
+
+          "$BUILD_TOOLS/apksigner" verify --verbose PlayHub-android-arm64.apk
+
+      - name: Upload signed Android APK artifact
         uses: actions/upload-artifact@v4
         with:
           name: playhub-android-arm64-apk
-          path: src-tauri/gen/android/app/build/outputs/apk/**/*.apk
+          path: PlayHub-android-arm64.apk
           if-no-files-found: error
+
+      - name: Attach signed APK to GitHub Release (tag v*)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: PlayHub-android-arm64.apk
+          draft: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
