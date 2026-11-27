@@ -141,11 +141,11 @@ jobs:
           path: PlayHub-android-arm64.apk
           if-no-files-found: error
 
-      - name: Attach signed APK to GitHub Release (tag v*)
+      - name: Attach signed APK to GitHub Release
         if: startsWith(github.ref, 'refs/tags/v')
-        uses: softprops/action-gh-release@v2
-        with:
-          files: PlayHub-android-arm64.apk
-          draft: true
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          APK_PATH=$(find . -maxdepth 5 -name "PlayHub-android-arm64.apk" | head -n 1)
+          test -n "$APK_PATH"
+          gh release upload "${GITHUB_REF_NAME}" "$APK_PATH" --clobber
