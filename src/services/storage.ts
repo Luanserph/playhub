@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { MediaItem, PlayRequest } from '../types/media';
 import type { LanguagePreference } from '../utils/locale';
-import { API_BASE_URL } from './api';
+import { API_BASE_URL, fetchWithBootRetry } from './api';
 import {
   syncRemoteAddonLists,
   type SyncAddonListsResponse,
@@ -413,7 +413,7 @@ async function pushConfigToServer(payload: {
       }),
     });
   } catch {
-    // Backend pode estar offline (ex: localhost:3001 parado); localStorage continua preservado
+    // Backend pode estar offline (ex: 127.0.0.1:3001 parado); localStorage continua preservado
   } finally {
     window.clearTimeout(timer);
   }
@@ -446,9 +446,13 @@ export function usePlayHubStorage() {
   useEffect(() => {
     let active = true;
     const controller = new AbortController();
-    const timer = window.setTimeout(() => controller.abort(), 3000);
+    const timer = window.setTimeout(() => controller.abort(), 6500);
 
-    fetch(`${API_BASE_URL}/api/config`, { signal: controller.signal })
+    fetchWithBootRetry(
+      `${API_BASE_URL}/api/config`,
+      { signal: controller.signal },
+      { attempts: 3, delayMs: 1000 }
+    )
       .then(async (res) => {
         if (!res.ok) return null;
         return (await res.json()) as RemoteStorePayload;

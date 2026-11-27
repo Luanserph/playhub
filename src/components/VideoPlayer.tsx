@@ -642,7 +642,7 @@ export function VideoPlayer({
         }
         setPhase('error');
         setErrorMessage(
-          'Não foi possível conectar ao servidor do player (http://localhost:3001).'
+          `Não foi possível conectar ao servidor do player (${API_BASE_URL}).`
         );
       });
 

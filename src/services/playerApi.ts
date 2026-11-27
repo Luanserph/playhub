@@ -1,5 +1,5 @@
 import type { MediaType } from '../types/media';
-import { API_BASE_URL } from './api';
+import { API_BASE_URL, fetchWithBootRetry } from './api';
 
 export const PLAYER_API_BASE = API_BASE_URL;
 
@@ -412,26 +412,30 @@ export async function resolvePlayback(
   params: ResolvePlaybackParams,
   signal?: AbortSignal
 ): Promise<ResolvePlaybackResponse> {
-  const res = await fetch(`${PLAYER_API_BASE}/api/resolve`, {
-    method: 'POST',
-    signal,
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      imdbId: params.imdbId,
-      type: params.type,
-      season: params.season,
-      episode: params.episode,
-      addons: params.addons,
-      enableBuiltInProviders: params.enableBuiltInProviders ?? true,
-      ...(params.torznabUrl ? { torznabUrl: params.torznabUrl } : {}),
-      ...(params.torznabApiKey ? { torznabApiKey: params.torznabApiKey } : {}),
-      preferPtBr: params.preferPtBr,
-      autoTranslate: params.autoSubtitles,
-      lang: params.lang,
-      iso2: params.iso2,
-      openSubCodes: params.openSubCodes,
-    }),
-  });
+  const res = await fetchWithBootRetry(
+    `${PLAYER_API_BASE}/api/resolve`,
+    {
+      method: 'POST',
+      signal,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        imdbId: params.imdbId,
+        type: params.type,
+        season: params.season,
+        episode: params.episode,
+        addons: params.addons,
+        enableBuiltInProviders: params.enableBuiltInProviders ?? true,
+        ...(params.torznabUrl ? { torznabUrl: params.torznabUrl } : {}),
+        ...(params.torznabApiKey ? { torznabApiKey: params.torznabApiKey } : {}),
+        preferPtBr: params.preferPtBr,
+        autoTranslate: params.autoSubtitles,
+        lang: params.lang,
+        iso2: params.iso2,
+        openSubCodes: params.openSubCodes,
+      }),
+    },
+    { attempts: 3, delayMs: 1000 }
+  );
 
   if (!res.ok) {
     throw new Error(`Erro ao resolver stream (${res.status})`);

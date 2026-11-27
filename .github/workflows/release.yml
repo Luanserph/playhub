@@ -62,6 +62,32 @@ jobs:
       - name: Build PlayHub backend sidecar
         run: npm --prefix server run build:sidecar
 
+      - name: Smoke test PlayHub backend sidecar
+        run: |
+          $sidecarPath = Resolve-Path "src-tauri\binaries\playhub-server-x86_64-pc-windows-msvc.exe"
+          $logOut = "$env:RUNNER_TEMP\sidecar-stdout.log"
+          $logErr = "$env:RUNNER_TEMP\sidecar-stderr.log"
+          $proc = Start-Process -FilePath $sidecarPath -PassThru -NoNewWindow -RedirectStandardOutput $logOut -RedirectStandardError $logErr
+          try {
+            Start-Sleep -Seconds 3
+            if ($proc.HasExited) {
+              Write-Host "=== STDERR ==="
+              if (Test-Path $logErr) { Get-Content $logErr }
+              Write-Host "=== STDOUT ==="
+              if (Test-Path $logOut) { Get-Content $logOut }
+              throw "playhub-server encerrou prematuramente com código $($proc.ExitCode)."
+            }
+            $health = Invoke-RestMethod -Uri "http://127.0.0.1:3001/api/health" -TimeoutSec 5
+            if (-not $health.ok) {
+              throw "Resposta inesperada de /api/health: $($health | ConvertTo-Json -Compress)"
+            }
+            Write-Host "Sidecar /api/health OK: $($health | ConvertTo-Json -Compress)"
+          } finally {
+            if ($proc -and -not $proc.HasExited) {
+              Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
+            }
+          }
+
       - name: Build & Publish Draft Release (tag v*)
         if: startsWith(github.ref, 'refs/tags/v')
         uses: tauri-apps/tauri-action@v0
