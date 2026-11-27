@@ -16,6 +16,7 @@ import {
   X,
 } from 'lucide-react';
 import { getTmdbKeySource, validateTmdbKey } from '../services/tmdb';
+import { openExternalUrl } from '../utils/externalLink';
 import { PlayHubLogo } from './PlayHubLogo';
 
 interface OnboardingGuideProps {
@@ -233,6 +234,10 @@ export function OnboardingGuide({
                       href="https://www.themoviedb.org/settings/api"
                       target="_blank"
                       rel="noreferrer"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        void openExternalUrl('https://www.themoviedb.org/settings/api');
+                      }}
                       className="inline-flex items-center gap-1.5 text-xs font-medium text-[var(--ph-text)] underline-offset-4 hover:underline"
                     >
                       <span>Abrir página de API do TMDB</span>

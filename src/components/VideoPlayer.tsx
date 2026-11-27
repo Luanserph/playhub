@@ -26,6 +26,7 @@ import {
   VolumeX,
 } from 'lucide-react';
 import { EmbedSubtitleOverlay } from './EmbedSubtitleOverlay';
+import { API_BASE_URL } from '../services/api';
 import { NeuralDubbingController } from '../services/neuralDubbing';
 import {
   DEMO_TEST_STREAM,
@@ -283,7 +284,7 @@ export function VideoPlayer({
 
   const externalStreamUrl = activeStream
     ? activeStream.sourceType === 'torrent' && activeStream.infoHash
-      ? `http://127.0.0.1:3001/api/torrent-raw/${encodeURIComponent(activeStream.infoHash)}/${encodeURIComponent(String(activeStream.fileIdx ?? 'auto'))}`
+      ? `${API_BASE_URL}/api/torrent-raw/${encodeURIComponent(activeStream.infoHash)}/${encodeURIComponent(String(activeStream.fileIdx ?? 'auto'))}`
       : activeStream.url
     : null;
 

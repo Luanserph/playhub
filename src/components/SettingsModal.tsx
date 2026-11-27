@@ -35,6 +35,7 @@ import type {
   UserPreferences,
 } from '../services/storage';
 import { getTmdbKeySource, validateTmdbKey } from '../services/tmdb';
+import { openExternalUrl } from '../utils/externalLink';
 import {
   getSystemLocale,
   resolveLanguageConfig,
@@ -407,6 +408,10 @@ export function SettingsModal({
                   href="https://www.themoviedb.org/settings/api"
                   target="_blank"
                   rel="noreferrer"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    void openExternalUrl('https://www.themoviedb.org/settings/api');
+                  }}
                   className="mt-2 inline-flex items-center gap-1.5 text-xs font-medium text-[var(--ph-text)] underline-offset-4 hover:underline"
                 >
                   <span>Obter chave gratuita no TMDB</span>

@@ -1,8 +1,7 @@
 import type { MediaType } from '../types/media';
+import { API_BASE_URL } from './api';
 
-export const PLAYER_API_BASE = (
-  (import.meta.env.VITE_API_URL as string | undefined) || 'http://localhost:3001'
-).replace(/\/+$/, '');
+export const PLAYER_API_BASE = API_BASE_URL;
 
 export type DubVoiceKey = 'female' | 'male';
 export type ResolveReason = 'NO_ADDONS' | 'NO_STREAMS_FOUND';
@@ -212,11 +211,62 @@ export async function fetchTorrentSubtitles(
   }
 }
 
+const FALLBACK_CURATED_DIRECTORY: DirectoryAddon[] = [
+  {
+    name: 'Torrentio',
+    description:
+      'Agregador de streams torrent mais popular para filmes e séries (4K, 1080p, 720p, Dual Áudio).',
+    transportUrl: 'https://torrentio.strem.fun/manifest.json',
+    resources: ['stream'],
+  },
+  {
+    name: 'Comet',
+    description:
+      'Buscador rápido de streams P2P e Debrid hospedado pela ElfHosted com ampla cobertura.',
+    transportUrl: 'https://comet.elfhosted.com/manifest.json',
+    resources: ['stream'],
+  },
+  {
+    name: 'MediaFusion',
+    description:
+      'Add-on multi-fontes com catálogo de filmes, séries e suporte a múltiplos idiomas.',
+    transportUrl: 'https://mediafusion.elfhosted.com/manifest.json',
+    resources: ['stream'],
+  },
+  {
+    name: 'Brazuca Torrents',
+    description:
+      'Focado em lançamentos dublados em PT-BR, Dual Áudio e produções nacionais.',
+    transportUrl: 'https://94c8cb9f702d-brazuca-torrents.baby-beamup.club/manifest.json',
+    resources: ['stream'],
+  },
+  {
+    name: 'Peerflix',
+    description:
+      'Streams P2P com boa disponibilidade de filmes e séries em alta definição.',
+    transportUrl: 'https://peerflix.mov/manifest.json',
+    resources: ['stream'],
+  },
+  {
+    name: 'OpenSubtitles v3',
+    description:
+      'Legendas comunitárias oficiais em Português, Inglês, Espanhol e dezenas de idiomas.',
+    transportUrl: 'https://opensubtitles-v3.strem.io/manifest.json',
+    resources: ['subtitles'],
+  },
+];
+
 export async function fetchAddonDirectory(): Promise<DirectoryAddon[]> {
-  const res = await fetch(`${PLAYER_API_BASE}/api/addons/directory`);
-  if (!res.ok) throw new Error('Falha ao carregar catálogo de add-ons.');
-  const data = (await res.json()) as { addons?: DirectoryAddon[] };
-  return Array.isArray(data.addons) ? data.addons : [];
+  try {
+    const res = await fetch(`${PLAYER_API_BASE}/api/addons/directory`);
+    if (!res.ok) return FALLBACK_CURATED_DIRECTORY;
+    const data = (await res.json()) as { addons?: DirectoryAddon[] };
+    return Array.isArray(data.addons) && data.addons.length > 0
+      ? data.addons
+      : FALLBACK_CURATED_DIRECTORY;
+  } catch {
+    return FALLBACK_CURATED_DIRECTORY;
+  }
 }
 
 export async function syncRemoteAddonLists(

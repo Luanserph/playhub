@@ -9,11 +9,12 @@ import type {
     SeasonDetails,
 } from '../types/media';
 import { resolveLanguageConfig } from '../utils/locale';
+import { API_BASE_URL } from './api';
 
 const ENV_API_KEY = (import.meta.env.VITE_TMDB_API_KEY as string | undefined)?.trim() || '';
 const BASE_URL = 'https://api.themoviedb.org/3';
-const LOCAL_TMDB_PROXY_BASE = 'http://127.0.0.1:3001/api/tmdb';
-const LOCAL_TMDB_IMAGE_PROXY_BASE = 'http://127.0.0.1:3001/api/tmdb-image';
+const LOCAL_TMDB_PROXY_BASE = `${API_BASE_URL}/api/tmdb`;
+const LOCAL_TMDB_IMAGE_PROXY_BASE = `${API_BASE_URL}/api/tmdb-image`;
 const DIRECT_TMDB_IMAGE_BASE = 'https://image.tmdb.org/t/p';
 const TMDB_KEY_STORAGE = 'playhub_tmdb_api_key';
 

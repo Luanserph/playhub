@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { MediaItem, PlayRequest } from '../types/media';
 import type { LanguagePreference } from '../utils/locale';
+import { API_BASE_URL } from './api';
 import {
-  PLAYER_API_BASE,
   syncRemoteAddonLists,
   type SyncAddonListsResponse,
 } from './playerApi';
@@ -145,7 +145,7 @@ async function fetchManifestName(manifestUrl: string): Promise<{ ok: boolean; na
   const direct = await tryFetch(manifestUrl);
   if (direct.ok) return direct;
 
-  const proxiedUrl = `${PLAYER_API_BASE}/api/proxy?url=${encodeURIComponent(manifestUrl)}`;
+  const proxiedUrl = `${API_BASE_URL}/api/proxy?url=${encodeURIComponent(manifestUrl)}`;
   return tryFetch(proxiedUrl);
 }
 
@@ -394,7 +394,7 @@ async function pushConfigToServer(payload: {
   const controller = new AbortController();
   const timer = window.setTimeout(() => controller.abort(), 4000);
   try {
-    await fetch(`${PLAYER_API_BASE}/api/config`, {
+    await fetch(`${API_BASE_URL}/api/config`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       signal: controller.signal,
@@ -448,7 +448,7 @@ export function usePlayHubStorage() {
     const controller = new AbortController();
     const timer = window.setTimeout(() => controller.abort(), 3000);
 
-    fetch(`${PLAYER_API_BASE}/api/config`, { signal: controller.signal })
+    fetch(`${API_BASE_URL}/api/config`, { signal: controller.signal })
       .then(async (res) => {
         if (!res.ok) return null;
         return (await res.json()) as RemoteStorePayload;
@@ -707,6 +707,15 @@ export function usePlayHubStorage() {
             ? prev.map((a, idx) => (idx === existsIdx ? entry : a))
             : [...prev, entry];
         saveAddons(next);
+        void pushConfigToServer({
+          tmdbApiKey: loadTmdbApiKey(),
+          addons: next,
+          addonListUrls: loadAddonListUrls(),
+          preferences: loadPreferences(),
+          watchlist: loadWatchlist(),
+          ratings: loadRatings(),
+          watchHistory: loadWatchHistory(),
+        });
         return next;
       });
 
@@ -726,6 +735,15 @@ export function usePlayHubStorage() {
       if (prev.some((a) => a.url === entry.url)) return prev;
       const next = [...prev, entry];
       saveAddons(next);
+      void pushConfigToServer({
+        tmdbApiKey: loadTmdbApiKey(),
+        addons: next,
+        addonListUrls: loadAddonListUrls(),
+        preferences: loadPreferences(),
+        watchlist: loadWatchlist(),
+        ratings: loadRatings(),
+        watchHistory: loadWatchHistory(),
+      });
       return next;
     });
   }, []);
@@ -734,6 +752,15 @@ export function usePlayHubStorage() {
     setAddonsState((prev) => {
       const next = prev.filter((entry) => entry.url !== url);
       saveAddons(next);
+      void pushConfigToServer({
+        tmdbApiKey: loadTmdbApiKey(),
+        addons: next,
+        addonListUrls: loadAddonListUrls(),
+        preferences: loadPreferences(),
+        watchlist: loadWatchlist(),
+        ratings: loadRatings(),
+        watchHistory: loadWatchHistory(),
+      });
       return next;
     });
   }, []);

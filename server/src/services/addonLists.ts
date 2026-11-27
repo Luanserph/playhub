@@ -24,10 +24,57 @@ export interface SyncAddonListsResult {
 }
 
 const FETCH_TIMEOUT_MS = 5000;
+const DIRECTORY_REMOTE_TIMEOUT_MS = 6000;
 const DIRECTORY_CACHE_TTL_MS = 15 * 60 * 1000;
+const DIRECTORY_FALLBACK_TTL_MS = 30 * 1000;
 const DEFAULT_ADDONS_PATH = path.resolve(__dirname, '../../data/default-addons.json');
 
-let directoryCache: { items: DirectoryAddon[]; fetchedAt: number } | null = null;
+export const CURATED_DIRECTORY_ADDONS: DirectoryAddon[] = [
+  {
+    name: 'Torrentio',
+    description:
+      'Agregador de streams torrent mais popular para filmes e séries (4K, 1080p, 720p, Dual Áudio).',
+    transportUrl: 'https://torrentio.strem.fun/manifest.json',
+    resources: ['stream'],
+  },
+  {
+    name: 'Comet',
+    description:
+      'Buscador rápido de streams P2P e Debrid hospedado pela ElfHosted com ampla cobertura.',
+    transportUrl: 'https://comet.elfhosted.com/manifest.json',
+    resources: ['stream'],
+  },
+  {
+    name: 'MediaFusion',
+    description:
+      'Add-on multi-fontes com catálogo de filmes, séries e suporte a múltiplos idiomas.',
+    transportUrl: 'https://mediafusion.elfhosted.com/manifest.json',
+    resources: ['stream'],
+  },
+  {
+    name: 'Brazuca Torrents',
+    description:
+      'Focado em lançamentos dublados em PT-BR, Dual Áudio e produções nacionais.',
+    transportUrl: 'https://94c8cb9f702d-brazuca-torrents.baby-beamup.club/manifest.json',
+    resources: ['stream'],
+  },
+  {
+    name: 'Peerflix',
+    description:
+      'Streams P2P com boa disponibilidade de filmes e séries em alta definição.',
+    transportUrl: 'https://peerflix.mov/manifest.json',
+    resources: ['stream'],
+  },
+  {
+    name: 'OpenSubtitles v3',
+    description:
+      'Legendas comunitárias oficiais em Português, Inglês, Espanhol e dezenas de idiomas.',
+    transportUrl: 'https://opensubtitles-v3.strem.io/manifest.json',
+    resources: ['subtitles'],
+  },
+];
+
+let directoryCache: { items: DirectoryAddon[]; fetchedAt: number; ttlMs: number } | null = null;
 
 async function fetchJsonWithTimeout<T>(url: string, timeoutMs = FETCH_TIMEOUT_MS): Promise<T | null> {
   const controller = new AbortController();
@@ -217,22 +264,36 @@ function extractResourceNames(rawResources: unknown): string[] {
 }
 
 export async function getAddonDirectory(): Promise<DirectoryAddon[]> {
-  if (directoryCache && Date.now() - directoryCache.fetchedAt < DIRECTORY_CACHE_TTL_MS) {
+  if (directoryCache && Date.now() - directoryCache.fetchedAt < directoryCache.ttlMs) {
     return directoryCache.items;
   }
 
-  const curated = readCuratedFallbackAddons();
   const byUrl = new Map<string, DirectoryAddon>();
 
-  for (const item of curated) {
+  // 1. Lista curada embutida sempre garantida no topo (mesmo no binário empacotado / offline)
+  for (const item of CURATED_DIRECTORY_ADDONS) {
     const normalized = normalizeManifestUrl(item.transportUrl);
-    if (normalized) {
+    if (normalized && !byUrl.has(normalized)) {
       byUrl.set(normalized, { ...item, transportUrl: normalized });
     }
   }
 
-  // Consulta diretório comunitário oficial do Stremio
-  const remote = await fetchJsonWithTimeout<unknown>('https://api.strem.io/addonscollection', 6000);
+  // 2. Complemento opcional do arquivo default-addons.json (se existir em disco)
+  const diskCurated = readCuratedFallbackAddons();
+  for (const item of diskCurated) {
+    const normalized = normalizeManifestUrl(item.transportUrl);
+    if (normalized && !byUrl.has(normalized)) {
+      byUrl.set(normalized, { ...item, transportUrl: normalized });
+    }
+  }
+
+  // 3. Consulta diretório comunitário oficial do Stremio via backend (sem Origin/CORS, timeout 6s)
+  const remote = await fetchJsonWithTimeout<unknown>(
+    'https://api.strem.io/addonscollection',
+    DIRECTORY_REMOTE_TIMEOUT_MS
+  );
+  let remoteAdded = 0;
+
   if (Array.isArray(remote)) {
     for (const entry of remote) {
       if (!entry || typeof entry !== 'object') continue;
@@ -274,10 +335,15 @@ export async function getAddonDirectory(): Promise<DirectoryAddon[]> {
         transportUrl: normalized,
         resources: resources.filter((r) => r === 'stream' || r === 'subtitles'),
       });
+      remoteAdded++;
     }
   }
 
   const items = Array.from(byUrl.values()).slice(0, 40);
-  directoryCache = { items, fetchedAt: Date.now() };
+  directoryCache = {
+    items,
+    fetchedAt: Date.now(),
+    ttlMs: remoteAdded > 0 ? DIRECTORY_CACHE_TTL_MS : DIRECTORY_FALLBACK_TTL_MS,
+  };
   return items;
 }

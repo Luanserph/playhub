@@ -39,6 +39,7 @@ import {
   type DiscoverSortBy,
 } from './services/tmdb';
 import type { MediaItem, MediaType, PlayRequest } from './types/media';
+import { installExternalLinkInterceptor } from './utils/externalLink';
 import { resolveLanguageConfig } from './utils/locale';
 
 interface ActivePlayerSession {
@@ -221,6 +222,9 @@ export default function App() {
       },
     });
   }, []);
+
+  // Interceptador global: abre links externos http(s) no navegador padrão do sistema (Tauri / Web)
+  useEffect(() => installExternalLinkInterceptor(), []);
 
   // Atalho global Ctrl+K / Cmd+K para abrir a busca Spotlight (desabilitado com o player aberto)
   useEffect(() => {
