@@ -1,0 +1,13 @@
+{
+  "bundle": {
+    "targets": [
+      "nsis"
+    ],
+    "createUpdaterArtifacts": true,
+    "externalBin": [
+      "binaries/playhub-server",
+      "binaries/ffmpeg",
+      "binaries/ffprobe"
+    ]
+  }
+}
