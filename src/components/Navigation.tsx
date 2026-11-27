@@ -67,28 +67,65 @@ export function Navigation({
   };
 
   if (!isDesktop) {
+    const mobileActions: {
+      id: string;
+      label: string;
+      icon: typeof Home;
+      isActive: boolean;
+      count?: number;
+      onClick: () => void;
+    }[] = [
+      {
+        id: 'home',
+        label: 'Início',
+        icon: Home,
+        isActive: activeTab === 'home',
+        onClick: () => onSelectTab('home'),
+      },
+      {
+        id: 'search',
+        label: 'Buscar',
+        icon: Search,
+        isActive: false,
+        onClick: onOpenSearch,
+      },
+      {
+        id: 'watchlist',
+        label: 'Lista',
+        icon: Bookmark,
+        isActive: activeTab === 'watchlist',
+        count: watchlistCount,
+        onClick: () => onSelectTab('watchlist'),
+      },
+      {
+        id: 'settings',
+        label: 'Configurações',
+        icon: Settings,
+        isActive: false,
+        onClick: onOpenSettings,
+      },
+    ];
+
     return (
       <nav
         aria-label="Navegação principal"
-        className="pointer-events-none fixed inset-x-0 bottom-0 z-40 px-3 pb-[calc(env(safe-area-inset-bottom)+12px)] pt-2"
+        className="pointer-events-none fixed inset-x-0 bottom-0 z-40 px-3 pb-[calc(env(safe-area-inset-bottom)+10px)] pt-2"
       >
-        <div className="pointer-events-auto mx-auto flex max-w-md items-center justify-between gap-0.5 rounded-2xl border border-[var(--ph-border)] bg-[var(--ph-surface-glass)] p-1.5 shadow-2xl shadow-black/25 backdrop-blur-xl">
-          {NAV_ITEMS.map((item) => {
+        <div className="pointer-events-auto mx-auto flex max-w-md items-center justify-between gap-1 rounded-2xl border border-[var(--ph-border)] bg-[var(--ph-surface-glass)] p-1.5 shadow-2xl shadow-black/25 backdrop-blur-xl">
+          {mobileActions.map((item) => {
             const Icon = item.icon;
-            const isActive = activeTab === item.id;
-            const count = getCount(item.id);
             return (
               <button
                 key={item.id}
                 type="button"
-                onClick={() => onSelectTab(item.id)}
-                className={`relative flex flex-1 flex-col items-center justify-center gap-1 rounded-xl py-2 text-[10px] font-medium transition-colors ${
-                  isActive
+                onClick={item.onClick}
+                className={`relative flex min-h-11 flex-1 flex-col items-center justify-center gap-1 rounded-xl py-2 text-[10px] font-medium transition-colors ${
+                  item.isActive
                     ? 'text-[var(--ph-text)]'
                     : 'text-[var(--ph-text-muted)] hover:text-[var(--ph-text)]'
                 }`}
               >
-                {isActive && (
+                {item.isActive && (
                   <motion.span
                     layoutId="activeNav"
                     transition={NAV_SPRING}
@@ -96,14 +133,14 @@ export function Navigation({
                   />
                 )}
                 <span className="relative z-10 flex items-center justify-center">
-                  <Icon className="h-[18px] w-[18px]" strokeWidth={isActive ? 2.1 : 1.75} />
-                  {count > 0 && (
+                  <Icon className="h-[18px] w-[18px]" strokeWidth={item.isActive ? 2.1 : 1.75} />
+                  {item.count && item.count > 0 ? (
                     <span className="ml-0.5 text-[9px] text-[var(--ph-text-muted)] tabular-nums">
-                      {count}
+                      {item.count}
                     </span>
-                  )}
+                  ) : null}
                 </span>
-                <span className="relative z-10 leading-none">{item.mobileLabel}</span>
+                <span className="relative z-10 leading-none">{item.label}</span>
               </button>
             );
           })}

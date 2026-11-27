@@ -1,5 +1,5 @@
 import type { Update } from '@tauri-apps/plugin-updater';
-import { isTauriRuntime } from '../utils/externalLink';
+import { isDesktopTauri } from './platform';
 
 export const FALLBACK_APP_VERSION = '0.3.0';
 
@@ -12,7 +12,7 @@ export interface UpdateDownloadProgress {
 }
 
 export async function getCurrentAppVersion(): Promise<string> {
-  if (!isTauriRuntime()) {
+  if (!isDesktopTauri()) {
     return FALLBACK_APP_VERSION;
   }
   try {
@@ -24,7 +24,7 @@ export async function getCurrentAppVersion(): Promise<string> {
 }
 
 export async function checkForAppUpdate(): Promise<AppUpdate | null> {
-  if (!isTauriRuntime()) return null;
+  if (!isDesktopTauri()) return null;
   const { check } = await import('@tauri-apps/plugin-updater');
   return await check();
 }
@@ -33,7 +33,7 @@ export async function installAppUpdate(
   update: AppUpdate,
   onProgress?: (progress: UpdateDownloadProgress) => void
 ): Promise<void> {
-  if (!isTauriRuntime()) return;
+  if (!isDesktopTauri()) return;
 
   let downloaded = 0;
   let contentLength: number | null = null;

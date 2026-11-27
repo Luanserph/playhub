@@ -1,0 +1,81 @@
+name: Build Android APK
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build-android:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'npm'
+
+      - name: Setup Java 17 (Temurin)
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Setup Rust stable (aarch64-linux-android)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: './src-tauri -> target'
+
+      - name: Configure Android SDK and NDK environment
+        run: |
+          SDK_DIR="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-/usr/local/lib/android/sdk}}"
+          NDK_DIR=$(ls -d "$SDK_DIR"/ndk/* 2>/dev/null | sort -V | tail -n 1)
+          if [ -z "$NDK_DIR" ]; then
+            echo "Android NDK não encontrado em $SDK_DIR/ndk/*" >&2
+            exit 1
+          fi
+          echo "ANDROID_HOME=$SDK_DIR" >> "$GITHUB_ENV"
+          echo "ANDROID_SDK_ROOT=$SDK_DIR" >> "$GITHUB_ENV"
+          echo "NDK_HOME=$NDK_DIR" >> "$GITHUB_ENV"
+          echo "ANDROID_HOME=$SDK_DIR"
+          echo "NDK_HOME=$NDK_DIR"
+
+      - name: Install frontend dependencies
+        run: npm install
+
+      - name: Initialize Tauri Android project and enable cleartext traffic
+        run: |
+          if [ ! -d "src-tauri/gen/android" ]; then
+            npx tauri android init --ci
+          fi
+
+          MANIFEST="src-tauri/gen/android/app/src/main/AndroidManifest.xml"
+          if [ -f "$MANIFEST" ] && ! grep -q 'android:usesCleartextTraffic="true"' "$MANIFEST"; then
+            sed -i 's/<application/<application android:usesCleartextTraffic="true"/' "$MANIFEST"
+          fi
+          grep -n 'usesCleartextTraffic' "$MANIFEST" || true
+
+      - name: Build Android APK (aarch64 debug)
+        run: npx tauri android build --apk --target aarch64 --debug
+
+      # Após validar o primeiro APK debug e configurar o keystore nos secrets do repositório,
+      # substitua o passo acima pelo build de release assinado:
+      # - name: Build Android APK (aarch64 signed release)
+      #   run: npx tauri android build --apk --target aarch64
+
+      - name: Upload Android APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: playhub-android-arm64-apk
+          path: src-tauri/gen/android/app/build/outputs/apk/**/*.apk
+          if-no-files-found: error

@@ -1,0 +1,34 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "desktop",
+  "description": "enables desktop-only permissions (updater, process, sidecar shell)",
+  "platforms": [
+    "linux",
+    "macOS",
+    "windows"
+  ],
+  "windows": [
+    "main"
+  ],
+  "permissions": [
+    "updater:default",
+    "process:default",
+    {
+      "identifier": "shell:allow-open",
+      "allow": [
+        {
+          "url": "^https?://.*"
+        }
+      ]
+    },
+    {
+      "identifier": "shell:allow-execute",
+      "allow": [
+        {
+          "name": "binaries/playhub-server",
+          "sidecar": true
+        }
+      ]
+    }
+  ]
+}

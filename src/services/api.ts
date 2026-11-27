@@ -1,6 +1,10 @@
+import { getApiBaseUrl, hasBackendServer, smartFetch } from './platform';
+
 export const API_BASE_URL = (
   (import.meta.env.VITE_API_URL as string | undefined) || 'http://127.0.0.1:3001'
 ).replace(/\/+$/, '');
+
+export { getApiBaseUrl, hasBackendServer, smartFetch };
 
 function sleepWithSignal(ms: number, signal?: AbortSignal): Promise<void> {
   return new Promise((resolve, reject) => {
@@ -35,7 +39,7 @@ export async function fetchWithBootRetry(
 
   for (let attempt = 1; attempt <= attempts; attempt++) {
     try {
-      return await fetch(input, init);
+      return await smartFetch(input, init);
     } catch (err) {
       if (
         init?.signal?.aborted ||

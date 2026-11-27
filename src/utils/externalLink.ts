@@ -1,5 +1,7 @@
+import { isDesktopTauri, isTauri } from '../services/platform';
+
 export function isTauriRuntime(): boolean {
-  return typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
+  return isTauri();
 }
 
 export function isExternalHttpUrl(rawUrl: string): boolean {
@@ -26,13 +28,22 @@ export async function openExternalUrl(url: string): Promise<void> {
   const cleaned = url.trim();
   if (!cleaned) return;
 
-  if (isTauriRuntime()) {
+  if (isTauri()) {
     try {
-      const { open } = await import('@tauri-apps/plugin-shell');
-      await open(cleaned);
+      const { openUrl } = await import('@tauri-apps/plugin-opener');
+      await openUrl(cleaned);
       return;
     } catch {
-      // Fallback para o navegador caso o plugin shell falhe
+      // Fallback para plugin-shell no Desktop
+      if (isDesktopTauri()) {
+        try {
+          const { open } = await import('@tauri-apps/plugin-shell');
+          await open(cleaned);
+          return;
+        } catch {
+          // Segue para fallback web
+        }
+      }
     }
   }
 

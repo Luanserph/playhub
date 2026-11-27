@@ -26,8 +26,10 @@ import {
   VolumeX,
 } from 'lucide-react';
 import { EmbedSubtitleOverlay } from './EmbedSubtitleOverlay';
-import { API_BASE_URL } from '../services/api';
+import { API_BASE_URL, getApiBaseUrl, hasBackendServer } from '../services/api';
+import { isTouchDevice } from '../services/platform';
 import { NeuralDubbingController } from '../services/neuralDubbing';
+import { openExternalUrl } from '../utils/externalLink';
 import {
   DEMO_TEST_STREAM,
   fetchLastStreamError,
@@ -284,9 +286,14 @@ export function VideoPlayer({
 
   const externalStreamUrl = activeStream
     ? activeStream.sourceType === 'torrent' && activeStream.infoHash
-      ? `${API_BASE_URL}/api/torrent-raw/${encodeURIComponent(activeStream.infoHash)}/${encodeURIComponent(String(activeStream.fileIdx ?? 'auto'))}`
+      ? hasBackendServer()
+        ? `${getApiBaseUrl() || API_BASE_URL}/api/torrent-raw/${encodeURIComponent(activeStream.infoHash)}/${encodeURIComponent(String(activeStream.fileIdx ?? 'auto'))}`
+        : activeStream.url.startsWith('magnet:')
+          ? activeStream.url
+          : `magnet:?xt=urn:btih:${activeStream.infoHash}&dn=${encodeURIComponent(request.title)}`
       : activeStream.url
     : null;
+  const isTouch = isTouchDevice();
 
   const aiDubbingActive =
     playerMode === 'native' &&
@@ -2172,17 +2179,37 @@ export function VideoPlayer({
                           <div className="space-y-1">
                             <button
                               type="button"
-                              onClick={handleDownloadExternalM3u}
-                              className="flex w-full items-center gap-2.5 rounded-xl px-2.5 py-2 text-left text-xs font-medium text-white transition-colors hover:bg-white/10"
+                              onClick={() => {
+                                if (!externalStreamUrl) return;
+                                setActivePopover(null);
+                                void openExternalUrl(externalStreamUrl);
+                              }}
+                              className="flex min-h-11 w-full items-center gap-2.5 rounded-xl px-2.5 py-2 text-left text-xs font-medium text-white transition-colors hover:bg-white/10"
                             >
                               <ExternalLink className="h-3.5 w-3.5 shrink-0 text-white/75" />
                               <div>
-                                <p>Abrir no VLC / MPV (.m3u)</p>
+                                <p>Abrir no Player Externo</p>
                                 <p className="text-[10px] font-normal text-white/50">
-                                  Stream direto sem transcode
+                                  VLC / MPV / TorrServe
                                 </p>
                               </div>
                             </button>
+
+                            {!isTouch && (
+                              <button
+                                type="button"
+                                onClick={handleDownloadExternalM3u}
+                                className="flex w-full items-center gap-2.5 rounded-xl px-2.5 py-2 text-left text-xs font-medium text-white/85 transition-colors hover:bg-white/10 hover:text-white"
+                              >
+                                <Download className="h-3.5 w-3.5 shrink-0 text-white/75" />
+                                <div>
+                                  <p>Baixar playlist (.m3u)</p>
+                                  <p className="text-[10px] font-normal text-white/50">
+                                    Stream direto sem transcode
+                                  </p>
+                                </div>
+                              </button>
+                            )}
 
                             <button
                               type="button"
@@ -2698,7 +2725,7 @@ export function VideoPlayer({
                     type="button"
                     onClick={togglePlay}
                     aria-label={isPlaying ? 'Pausar' : 'Reproduzir'}
-                    className="flex h-10 w-10 items-center justify-center rounded-full bg-white text-zinc-950 transition-transform hover:bg-zinc-200 active:scale-95"
+                    className="flex h-11 w-11 items-center justify-center rounded-full bg-white text-zinc-950 transition-transform hover:bg-zinc-200 active:scale-95 sm:h-10 sm:w-10"
                   >
                     {isPlaying ? (
                       <Pause className="h-4 w-4 fill-zinc-950" />
@@ -2711,8 +2738,8 @@ export function VideoPlayer({
                     type="button"
                     onClick={() => seekBy(-10)}
                     aria-label="Voltar 10 segundos"
-                    title="Voltar 10s (←)"
-                    className="flex h-9 w-9 items-center justify-center rounded-full text-white/80 transition-colors hover:bg-white/10 hover:text-white"
+                    title={isTouch ? 'Voltar 10s' : 'Voltar 10s (←)'}
+                    className="flex h-11 w-11 items-center justify-center rounded-full text-white/80 transition-colors hover:bg-white/10 hover:text-white sm:h-9 sm:w-9"
                   >
                     <RotateCcw className="h-4 w-4" />
                   </button>
@@ -2721,8 +2748,8 @@ export function VideoPlayer({
                     type="button"
                     onClick={() => seekBy(10)}
                     aria-label="Avançar 10 segundos"
-                    title="Avançar 10s (→)"
-                    className="flex h-9 w-9 items-center justify-center rounded-full text-white/80 transition-colors hover:bg-white/10 hover:text-white"
+                    title={isTouch ? 'Avançar 10s' : 'Avançar 10s (→)'}
+                    className="flex h-11 w-11 items-center justify-center rounded-full text-white/80 transition-colors hover:bg-white/10 hover:text-white sm:h-9 sm:w-9"
                   >
                     <RotateCw className="h-4 w-4" />
                   </button>
@@ -2799,7 +2826,7 @@ export function VideoPlayer({
                     }
                     aria-label="Legendas e sincronia"
                     title="Legendas"
-                    className={`flex h-9 items-center gap-1.5 rounded-xl px-2.5 text-xs font-medium transition-colors ${
+                    className={`flex min-h-11 min-w-11 items-center justify-center gap-1.5 rounded-xl px-2.5 text-xs font-medium transition-colors sm:h-9 sm:min-h-0 sm:min-w-0 ${
                       activePopover === 'subtitles'
                         ? 'bg-white text-zinc-950'
                         : subtitlesEnabled && effectiveSubtitleUrl
@@ -2817,8 +2844,8 @@ export function VideoPlayer({
                       setActivePopover((prev) => (prev === 'aspect' ? null : 'aspect'))
                     }
                     aria-label="Proporção de tela"
-                    title="Proporção de tela (A)"
-                    className={`flex h-9 items-center gap-1.5 rounded-xl px-2.5 text-xs font-medium transition-colors ${
+                    title={isTouch ? 'Proporção de tela' : 'Proporção de tela (A)'}
+                    className={`flex min-h-11 min-w-11 items-center justify-center gap-1.5 rounded-xl px-2.5 text-xs font-medium transition-colors sm:h-9 sm:min-h-0 sm:min-w-0 ${
                       activePopover === 'aspect'
                         ? 'bg-white text-zinc-950'
                         : aspectRatio !== 'original'
@@ -2836,8 +2863,8 @@ export function VideoPlayer({
                     type="button"
                     onClick={toggleFullscreen}
                     aria-label={isFullscreen ? 'Sair da tela cheia' : 'Tela cheia'}
-                    title="Tela cheia (F)"
-                    className="flex h-9 w-9 items-center justify-center rounded-xl text-white/80 transition-colors hover:bg-white/10 hover:text-white"
+                    title={isTouch ? 'Tela cheia' : 'Tela cheia (F)'}
+                    className="flex h-11 w-11 items-center justify-center rounded-xl text-white/80 transition-colors hover:bg-white/10 hover:text-white sm:h-9 sm:w-9"
                   >
                     {isFullscreen ? (
                       <Minimize className="h-4 w-4" />

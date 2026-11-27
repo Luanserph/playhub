@@ -9,12 +9,10 @@ import type {
     SeasonDetails,
 } from '../types/media';
 import { resolveLanguageConfig } from '../utils/locale';
-import { API_BASE_URL } from './api';
+import { getApiBaseUrl, hasBackendServer, smartFetch } from './api';
 
 const ENV_API_KEY = (import.meta.env.VITE_TMDB_API_KEY as string | undefined)?.trim() || '';
 const BASE_URL = 'https://api.themoviedb.org/3';
-const LOCAL_TMDB_PROXY_BASE = `${API_BASE_URL}/api/tmdb`;
-const LOCAL_TMDB_IMAGE_PROXY_BASE = `${API_BASE_URL}/api/tmdb-image`;
 const DIRECT_TMDB_IMAGE_BASE = 'https://image.tmdb.org/t/p';
 const TMDB_KEY_STORAGE = 'playhub_tmdb_api_key';
 
@@ -88,8 +86,9 @@ function buildDirectTmdbRequest(
 }
 
 function buildProxyTmdbUrl(endpoint: string, params: Record<string, string> = {}): string {
+    const base = getApiBaseUrl();
     const normalizedEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
-    const url = new URL(`${LOCAL_TMDB_PROXY_BASE}${normalizedEndpoint}`);
+    const url = new URL(`${base}/api/tmdb${normalizedEndpoint}`);
     Object.entries(params).forEach(([k, value]) => {
         url.searchParams.set(k, value);
     });
@@ -142,28 +141,30 @@ export async function tmdbFetch<T>(
         finalParams.language = activeTmdbLanguage;
     }
 
-    // 1. Tenta primeiro pelo backend local Fastify (sem Origin de navegador + cache em memória)
-    const proxyUrl = buildProxyTmdbUrl(normalizedEndpoint, finalParams);
-    let proxyResponse: Response | null = null;
-    try {
-        proxyResponse = await fetch(proxyUrl, {
-            headers: {
-                'x-tmdb-key': activeKey,
-                Accept: 'application/json',
-            },
-        });
-    } catch {
-        // Backend local offline/inacessível: faz fallback automático para o TMDB direto
-        proxyResponse = null;
+    // 1. Quando há backend local/LAN, tenta primeiro pelo proxy Fastify (sem Origin + cache em memória)
+    if (hasBackendServer()) {
+        const proxyUrl = buildProxyTmdbUrl(normalizedEndpoint, finalParams);
+        let proxyResponse: Response | null = null;
+        try {
+            proxyResponse = await smartFetch(proxyUrl, {
+                headers: {
+                    'x-tmdb-key': activeKey,
+                    Accept: 'application/json',
+                },
+            });
+        } catch {
+            // Backend local offline/inacessível: faz fallback automático para o TMDB direto
+            proxyResponse = null;
+        }
+
+        if (proxyResponse) {
+            return parseTmdbResponse<T>(proxyResponse);
+        }
     }
 
-    if (proxyResponse) {
-        return parseTmdbResponse<T>(proxyResponse);
-    }
-
-    // 2. Fallback direto pelo navegador
+    // 2. Direto ao TMDB via smartFetch (Android Standalone usa plugin-http nativo sem CORS)
     const { url, headers } = buildDirectTmdbRequest(normalizedEndpoint, activeKey, finalParams);
-    const directRes = headers ? await fetch(url, { headers }) : await fetch(url);
+    const directRes = headers ? await smartFetch(url, { headers }) : await smartFetch(url);
     return parseTmdbResponse<T>(directRes);
 }
 
@@ -228,7 +229,10 @@ export function getImageUrl(
 ): string | null {
     if (!path) return null;
     const normalizedPath = path.startsWith('/') ? path : `/${path}`;
-    return `${LOCAL_TMDB_IMAGE_PROXY_BASE}/${size}${normalizedPath}`;
+    if (!hasBackendServer()) {
+        return `${DIRECT_TMDB_IMAGE_BASE}/${size}${normalizedPath}`;
+    }
+    return `${getApiBaseUrl()}/api/tmdb-image/${size}${normalizedPath}`;
 }
 
 export function getDirectImageUrl(
@@ -264,8 +268,8 @@ export function handleTmdbImageError(
 }
 
 export const IMG_BASE = {
-    poster: `${LOCAL_TMDB_IMAGE_PROXY_BASE}/w500`,
-    backdrop: `${LOCAL_TMDB_IMAGE_PROXY_BASE}/original`,
+    poster: `${DIRECT_TMDB_IMAGE_BASE}/w500`,
+    backdrop: `${DIRECT_TMDB_IMAGE_BASE}/original`,
 };
 
 export interface GenreItem {

@@ -1,7 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { MediaItem, PlayRequest } from '../types/media';
 import type { LanguagePreference } from '../utils/locale';
-import { API_BASE_URL, fetchWithBootRetry } from './api';
+import {
+  fetchWithBootRetry,
+  getApiBaseUrl,
+  hasBackendServer,
+  smartFetch,
+} from './api';
 import {
   syncRemoteAddonLists,
   type SyncAddonListsResponse,
@@ -127,7 +132,7 @@ async function fetchManifestName(manifestUrl: string): Promise<{ ok: boolean; na
     const controller = new AbortController();
     const timer = window.setTimeout(() => controller.abort(), 7000);
     try {
-      const res = await fetch(url, {
+      const res = await smartFetch(url, {
         signal: controller.signal,
         headers: { Accept: 'application/json' },
       });
@@ -143,9 +148,9 @@ async function fetchManifestName(manifestUrl: string): Promise<{ ok: boolean; na
   };
 
   const direct = await tryFetch(manifestUrl);
-  if (direct.ok) return direct;
+  if (direct.ok || !hasBackendServer()) return direct;
 
-  const proxiedUrl = `${API_BASE_URL}/api/proxy?url=${encodeURIComponent(manifestUrl)}`;
+  const proxiedUrl = `${getApiBaseUrl()}/api/proxy?url=${encodeURIComponent(manifestUrl)}`;
   return tryFetch(proxiedUrl);
 }
 
@@ -391,10 +396,14 @@ async function pushConfigToServer(payload: {
   ratings: Record<string, number>;
   watchHistory: WatchHistoryEntry[];
 }): Promise<void> {
+  if (!hasBackendServer()) return;
+  const baseUrl = getApiBaseUrl();
+  if (!baseUrl) return;
+
   const controller = new AbortController();
   const timer = window.setTimeout(() => controller.abort(), 4000);
   try {
-    await fetch(`${API_BASE_URL}/api/config`, {
+    await smartFetch(`${baseUrl}/api/config`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       signal: controller.signal,
@@ -444,12 +453,18 @@ export function usePlayHubStorage() {
 
   // 1. Ao iniciar o app, carrega de GET /api/config e faz merge seguro com localStorage
   useEffect(() => {
+    if (!hasBackendServer()) {
+      hydratedFromServerRef.current = true;
+      const doneTimer = window.setTimeout(() => setConfigHydrated(true), 0);
+      return () => window.clearTimeout(doneTimer);
+    }
+
     let active = true;
     const controller = new AbortController();
     const timer = window.setTimeout(() => controller.abort(), 6500);
 
     fetchWithBootRetry(
-      `${API_BASE_URL}/api/config`,
+      `${getApiBaseUrl()}/api/config`,
       { signal: controller.signal },
       { attempts: 3, delayMs: 1000 }
     )

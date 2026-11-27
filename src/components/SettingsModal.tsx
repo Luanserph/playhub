@@ -34,6 +34,12 @@ import type {
   ThemeMode,
   UserPreferences,
 } from '../services/storage';
+import {
+  getLanServerUrl,
+  isAndroid,
+  setLanServerUrl,
+  testLanServerConnection,
+} from '../services/platform';
 import { getTmdbKeySource, validateTmdbKey } from '../services/tmdb';
 import type { UpdateDownloadProgress } from '../services/updater';
 import { openExternalUrl } from '../utils/externalLink';
@@ -154,6 +160,47 @@ export function SettingsModal({
   const [loadingDirectory, setLoadingDirectory] = useState(false);
 
   const [backupFeedback, setBackupFeedback] = useState<string | null>(null);
+
+  const runningOnAndroid = isAndroid();
+  const [lanServerInput, setLanServerInput] = useState(() => getLanServerUrl());
+  const [testingLanServer, setTestingLanServer] = useState(false);
+  const [lanFeedback, setLanFeedback] = useState<{
+    type: 'success' | 'error';
+    message: string;
+  } | null>(null);
+
+  const handleTestLanServer = async () => {
+    if (testingLanServer) return;
+    setTestingLanServer(true);
+    setLanFeedback(null);
+    try {
+      const res = await testLanServerConnection(lanServerInput);
+      if (res.ok) {
+        setLanServerUrl(res.normalizedUrl);
+        setLanServerInput(res.normalizedUrl);
+        setLanFeedback({
+          type: 'success',
+          message: `Conectado a ${res.normalizedUrl}. Remux FFmpeg, downloads e sincronização ativos.`,
+        });
+      } else {
+        setLanFeedback({
+          type: 'error',
+          message: res.error || 'Falha ao conectar ao servidor na rede local.',
+        });
+      }
+    } finally {
+      setTestingLanServer(false);
+    }
+  };
+
+  const handleClearLanServer = () => {
+    setLanServerUrl('');
+    setLanServerInput('');
+    setLanFeedback({
+      type: 'success',
+      message: 'Modo Standalone ativado (sem servidor LAN).',
+    });
+  };
 
   useEffect(() => {
     if (!open) return;
@@ -1014,6 +1061,69 @@ export function SettingsModal({
                   )}
                 </div>
               </section>
+
+              {/* Seção exclusiva Android: Servidor PlayHub na Rede Local (opcional) */}
+              {runningOnAndroid && (
+                <section>
+                  <h3 className="text-[11px] font-medium uppercase tracking-[0.14em] text-[var(--ph-text-muted)]">
+                    Servidor PlayHub na Rede Local (opcional)
+                  </h3>
+                  <p className="mt-1 text-xs text-[var(--ph-text-muted)]">
+                    Conecte ao PlayHub rodando no seu PC na mesma rede Wi-Fi para liberar remux FFmpeg, downloads e sincronização. Sem isso, o app roda em modo Standalone.
+                  </p>
+
+                  <div className="mt-3 space-y-2.5 rounded-2xl border border-[var(--ph-border)] bg-[var(--ph-surface-2)] p-3.5">
+                    <input
+                      type="url"
+                      value={lanServerInput}
+                      onChange={(e) => {
+                        setLanServerInput(e.target.value);
+                        if (lanFeedback) setLanFeedback(null);
+                      }}
+                      placeholder="http://192.168.x.x:3001"
+                      className="h-11 w-full rounded-xl border border-[var(--ph-border)] bg-[var(--ph-surface)] px-3.5 font-mono text-xs text-[var(--ph-text)] placeholder-[var(--ph-text-muted)] outline-none focus:border-[var(--ph-border-strong)]"
+                    />
+
+                    <div className="flex flex-wrap items-center gap-2">
+                      <button
+                        type="button"
+                        disabled={testingLanServer || !lanServerInput.trim()}
+                        onClick={() => void handleTestLanServer()}
+                        className="inline-flex min-h-11 flex-1 items-center justify-center gap-1.5 rounded-xl bg-[var(--ph-btn-primary-bg)] px-3.5 text-xs font-semibold text-[var(--ph-btn-primary-fg)] transition-colors hover:bg-[var(--ph-btn-primary-hover)] disabled:opacity-60"
+                      >
+                        {testingLanServer ? (
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        ) : (
+                          <RefreshCw className="h-3.5 w-3.5" />
+                        )}
+                        <span>{testingLanServer ? 'Testando...' : 'Testar conexão'}</span>
+                      </button>
+
+                      {lanServerInput.trim() && (
+                        <button
+                          type="button"
+                          onClick={handleClearLanServer}
+                          className="inline-flex min-h-11 items-center justify-center rounded-xl border border-[var(--ph-border)] bg-[var(--ph-surface)] px-3.5 text-xs font-medium text-[var(--ph-text-muted)] transition-colors hover:bg-[var(--ph-hover)] hover:text-[var(--ph-text)]"
+                        >
+                          Limpar
+                        </button>
+                      )}
+                    </div>
+
+                    {lanFeedback && (
+                      <p
+                        className={`text-xs ${
+                          lanFeedback.type === 'success'
+                            ? 'text-[var(--ph-text)]'
+                            : 'text-[var(--ph-text-muted)]'
+                        }`}
+                      >
+                        {lanFeedback.message}
+                      </p>
+                    )}
+                  </div>
+                </section>
+              )}
 
               {/* Seção: Backup e Migração */}
               <section>
